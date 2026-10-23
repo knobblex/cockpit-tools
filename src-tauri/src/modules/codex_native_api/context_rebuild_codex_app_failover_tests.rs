@@ -87,6 +87,7 @@ async fn limited_fixture(delivery: LimitDelivery, b: Vec<Step>) -> Fixture {
         oauth: AtomicBool::new(true),
         passthrough: AtomicBool::new(false),
         removed_a: AtomicBool::new(false),
+        seat_rotated: AtomicBool::new(false),
         selections: Mutex::new(vec![]),
         failures: Mutex::new(vec![]),
         reports: Mutex::new(vec![]),

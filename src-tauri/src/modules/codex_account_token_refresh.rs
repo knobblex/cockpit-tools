@@ -1028,6 +1028,19 @@ where
 fn account_matches_refresh_snapshot(current: &CodexAccount, expected: &CodexAccount) -> bool {
     current.token_generation == expected.token_generation
         && account_credential_hash(current) == account_credential_hash(expected)
+        && account_refresh_identity_matches(current, expected)
+}
+
+fn account_refresh_identity_matches(current: &CodexAccount, expected: &CodexAccount) -> bool {
+    current.id == expected.id
+        && current.email.eq_ignore_ascii_case(&expected.email)
+        && current.user_id == expected.user_id
+        && current.account_id == expected.account_id
+        && current.organization_id == expected.organization_id
+        && current.auth_mode == expected.auth_mode
+        && current.is_agent_identity_auth() == expected.is_agent_identity_auth()
+        && current.is_web_session_auth() == expected.is_web_session_auth()
+        && is_pending_oauth_account(current) == is_pending_oauth_account(expected)
 }
 
 fn persist_refreshed_account(

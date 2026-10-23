@@ -16,10 +16,22 @@ pub fn is_managed_auth_refresh_due(account: &CodexAccount) -> bool {
 }
 
 async fn perform_managed_token_refresh(
-    mut account: CodexAccount,
+    account: CodexAccount,
     reason: &str,
     force: bool,
 ) -> Result<CodexAccount, String> {
+    perform_managed_token_refresh_with_outcome(account, reason, force)
+        .await
+        .map(|(account, _)| account)
+}
+
+/// The flag is true only when this call committed its own successful refresh.
+/// Reusing a concurrent authorization must not count as an exhausted RT attempt.
+async fn perform_managed_token_refresh_with_outcome(
+    mut account: CodexAccount,
+    reason: &str,
+    force: bool,
+) -> Result<(CodexAccount, bool), String> {
     crate::modules::codex_auth_diagnostic::log_event(
         "managed_token_refresh_start",
         serde_json::json!({
@@ -44,13 +56,18 @@ async fn perform_managed_token_refresh(
                 account.id, account.email, reason
             ));
             if force || codex_oauth::is_token_expired(&account.tokens.access_token) {
-                mark_account_requires_reauth(
-                    &mut account,
-                    CODEX_MISSING_REFRESH_TOKEN_REAUTH_REASON,
-                )?;
+                let (current, marked) =
+                    update_account_after_refresh_if_current(&account, |current| {
+                        current.requires_reauth = true;
+                        current.reauth_reason =
+                            Some(CODEX_MISSING_REFRESH_TOKEN_REAUTH_REASON.into());
+                    })?;
+                if !marked {
+                    return Ok((current, false));
+                }
                 return Err(CODEX_MISSING_REFRESH_TOKEN_REAUTH_REASON.to_string());
             }
-            return Ok(account);
+            return Ok((account, false));
         }
     };
 
@@ -70,7 +87,7 @@ async fn perform_managed_token_refresh(
             let (current, saved) = persist_refreshed_account(&account, new_tokens)?;
             account = current;
             if !saved {
-                return Ok(account);
+                return Ok((account, false));
             }
             sync_managed_account_sidecar(&account);
             crate::modules::codex_auth_diagnostic::log_event(
@@ -87,7 +104,7 @@ async fn perform_managed_token_refresh(
                 "Codex Token Authority 刷新成功: account_id={}, generation={}",
                 account.id, account.token_generation
             ));
-            Ok(account)
+            Ok((account, true))
         }
         Err(err) => {
             // Another authorization/import may have replaced the chain while
@@ -96,7 +113,7 @@ async fn perform_managed_token_refresh(
             let current = load_account(&account.id)
                 .ok_or_else(|| format!("账号已删除或无法读取，拒绝刷新写回: account_id={}", account.id))?;
             if !account_matches_refresh_snapshot(&current, &account) {
-                return Ok(current);
+                return Ok((current, false));
             }
             account = current;
             let user_error = format_refresh_error_for_user(&err);
@@ -119,7 +136,7 @@ async fn perform_managed_token_refresh(
                     "Codex 自动刷新遇到 refresh_token_reused，忽略账号状态与切号限制: account_id={}, reason={}",
                     account.id, reason
                 ));
-                return Ok(account);
+                return Ok((account, false));
             }
             if is_reauth_required_refresh_error(&err) {
                 let (current, marked) = update_account_after_refresh_if_current(
@@ -130,13 +147,141 @@ async fn perform_managed_token_refresh(
                     },
                 )?;
                 if !marked {
-                    return Ok(current);
+                    return Ok((current, false));
                 }
                 return Err(user_error);
             }
             Err(user_error)
         }
     }
+}
+
+/// Recover only the identity that sent the rejected quota request. Synchronizing
+/// and rotating use the same locks as other Token Authority operations.
+pub(crate) async fn recover_account_for_quota_query(
+    expected: &CodexAccount,
+    force_refresh: bool,
+) -> Result<(CodexAccount, bool), String> {
+    if expected.is_api_key_auth()
+        || expected.is_agent_identity_auth()
+        || expected.is_web_session_auth()
+        || is_pending_oauth_account(expected)
+    {
+        return Err("CODEX_STALE_QUOTA_REQUEST".into());
+    }
+    let lock = codex_token_lock_for(&expected.id);
+    let _guard = lock.lock().await;
+    let _file_guard =
+        acquire_codex_token_refresh_file_lock(&expected.id, "quota-401-recovery").await?;
+    let mut account =
+        load_account(&expected.id).ok_or_else(|| "CODEX_STALE_ACCOUNT".to_string())?;
+    if !account_refresh_identity_matches(&account, expected) {
+        return Err("CODEX_STALE_QUOTA_REQUEST".into());
+    }
+    if !account_matches_refresh_snapshot(&account, expected)
+        && !codex_oauth::is_token_expired(&account.tokens.access_token)
+    {
+        return Ok((account, false));
+    }
+
+    let runtime = CodexQuotaRuntimeSnapshot::capture().await?;
+    let sync_result = if runtime.has_running_oauth_account(&account.id) {
+        sync_account_from_live_authority_sources_with_entries(&mut account, runtime.process_entries())
+    } else {
+        sync_account_from_authority_sources_with_entries(&mut account, runtime.process_entries())
+    };
+    sync_result.map_err(|error| format!("同步最新 Codex 凭据失败: {error}"))?;
+    // Authority synchronization or an import can race with account metadata
+    // edits. Never rotate credentials for a different workspace or auth mode.
+    account = load_account(&expected.id).ok_or_else(|| "CODEX_STALE_ACCOUNT".to_string())?;
+    if !account_refresh_identity_matches(&account, expected) {
+        return Err("CODEX_STALE_QUOTA_REQUEST".into());
+    }
+    if !force_refresh {
+        return Ok((account, false));
+    }
+    // Compare the credential hash as well as its generation: older imports can
+    // replace credentials without advancing token_generation.
+    if !account_matches_refresh_snapshot(&account, expected)
+        && !codex_oauth::is_token_expired(&account.tokens.access_token)
+    {
+        return Ok((account, false));
+    }
+    clear_refresh_token_reused_state(&mut account)?;
+    reject_known_access_token_revocation(&account)?;
+    if account.requires_reauth {
+        return Err(account
+            .reauth_reason
+            .clone()
+            .unwrap_or_else(|| "账号需要重新授权".into()));
+    }
+
+    let (account, committed) = perform_managed_token_refresh_with_outcome(
+        account,
+        "额度接口返回 401，已同步凭据后尝试续期",
+        true,
+    )
+    .await?;
+    if !quota_recovery_result_identity_matches(&account, expected, committed) {
+        return Err("CODEX_STALE_QUOTA_REQUEST".into());
+    }
+    Ok((account, committed))
+}
+
+fn quota_recovery_result_identity_matches(
+    current: &CodexAccount,
+    expected: &CodexAccount,
+    committed_refresh: bool,
+) -> bool {
+    if !committed_refresh {
+        return account_refresh_identity_matches(current, expected);
+    }
+    // A refresh can reveal claims missing from an access-token-only import.
+    // Existing claims remain immutable; only this committed result may enrich
+    // unknown identity fields, never a concurrently replaced credential chain.
+    let mut enriched = expected.clone();
+    if enriched.user_id.is_none() {
+        enriched.user_id = current.user_id.clone();
+    }
+    if enriched.account_id.is_none() {
+        enriched.account_id = current.account_id.clone();
+    }
+    if enriched.organization_id.is_none() {
+        enriched.organization_id = current.organization_id.clone();
+    }
+    account_refresh_identity_matches(current, &enriched)
+}
+
+/// Called only after a committed refresh and another upstream 401. A stale
+/// request cannot mark credentials from a later login or workspace change.
+pub(crate) async fn mark_quota_auth_recovery_exhausted(
+    expected: &CodexAccount,
+    reason: &str,
+    query_started: Instant,
+) -> Result<bool, String> {
+    let lock = codex_token_lock_for(&expected.id);
+    let _token_guard = lock.lock().await;
+    let _file_guard =
+        acquire_codex_token_refresh_file_lock(&expected.id, "quota-401-exhausted").await?;
+    let _guard = CODEX_ACCOUNT_MUTATION_LOCK
+        .lock()
+        .map_err(|_| "CODEX_QUOTA_WRITE_LOCK_POISONED".to_string())?;
+    let Some(mut current) = load_account(&expected.id) else {
+        return Ok(false);
+    };
+    if !account_matches_refresh_snapshot(&current, expected)
+        || QUOTA_QUERY_COMMITS
+            .lock()
+            .map_err(|_| "CODEX_QUOTA_WRITE_LOCK_POISONED".to_string())?
+            .get(&expected.id)
+            .is_some_and(|committed| *committed > query_started)
+    {
+        return Ok(false);
+    }
+    current.requires_reauth = true;
+    current.reauth_reason = Some(reason.to_string());
+    save_account_with_tombstone_guard(&current)?;
+    Ok(true)
 }
 
 async fn validate_managed_account_for_client_locked(

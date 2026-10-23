@@ -48,6 +48,7 @@ pub(crate) struct QuotaUpdated {
     token_generation: u64,
     quota: CodexQuota,
     plan_type: Option<String>,
+    account_structure: Option<String>,
     usage_updated_at: i64,
     sequence: u64,
 }
@@ -73,6 +74,7 @@ pub(crate) fn publish(account: &CodexAccount) {
         token_generation: account.token_generation,
         quota: quota.clone(),
         plan_type: account.plan_type.clone(),
+        account_structure: account.account_structure.clone(),
         usage_updated_at: updated_at,
         sequence: SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1,
     };

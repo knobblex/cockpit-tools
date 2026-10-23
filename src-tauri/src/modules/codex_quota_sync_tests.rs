@@ -239,6 +239,7 @@ fn quota_event_serialization_contains_no_credentials() {
         token_generation: 4,
         quota: quota(30, 50),
         plan_type: Some("plus".into()),
+        account_structure: Some("workspace".into()),
         usage_updated_at: 123,
         sequence: 1,
     };
@@ -246,5 +247,6 @@ fn quota_event_serialization_contains_no_credentials() {
     assert!(json.get("tokens").is_none());
     assert!(json.get("access_token").is_none());
     assert_eq!(json["quota"]["hourly_percentage"], 30);
+    assert_eq!(json["account_structure"], "workspace");
     assert!(serde_json::to_value(config::UserConfig::default()).unwrap().get("codex_quota_sync_enabled").is_none());
 }

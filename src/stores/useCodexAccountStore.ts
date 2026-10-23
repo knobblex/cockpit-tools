@@ -23,7 +23,7 @@ import { mergeCodexProfileResult } from '../utils/codexProfileRefresh';
 import { mergeCodexQuotaUpdate, type CodexQuotaUpdate } from '../utils/codexQuotaSync';
 
 const quotaUpdates = new Map<string, CodexQuotaUpdate>();
-const reconcileQuotaUpdate = (account: CodexAccount) => mergeCodexQuotaUpdate(account, quotaUpdates.get(account.id));
+const reconcileQuotaUpdate = (account: CodexAccount) => mergeCodexQuotaUpdate(account, quotaUpdates.get(account.id), 'snapshot');
 
 const APP_PROFILE = (import.meta.env.VITE_COCKPIT_TOOLS_PROFILE || '').trim();
 const STORAGE_PROFILE_SUFFIX = APP_PROFILE && APP_PROFILE !== 'prod' ? `.${APP_PROFILE}` : '';

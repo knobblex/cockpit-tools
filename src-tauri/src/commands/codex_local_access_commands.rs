@@ -5,6 +5,29 @@
 // `commands::codex::<command>`，确保 Tauri command 和内部 Rust 调用路径保持兼容。
 
 #[tauri::command]
+pub fn codex_premium_seat_get() -> Result<crate::modules::codex_seat_rotation::State, String> {
+    codex_local_access::get_premium_seat_rotation()
+}
+
+#[tauri::command]
+pub async fn codex_premium_seat_check(config: crate::modules::codex_seat_rotation::Config)
+    -> Result<crate::modules::codex_seat_rotation::State, String> {
+    codex_local_access::check_premium_seat_rotation(config).await
+}
+
+#[tauri::command]
+pub async fn codex_premium_seat_configure(config: crate::modules::codex_seat_rotation::Config)
+    -> Result<crate::modules::codex_seat_rotation::State, String> {
+    codex_local_access::configure_premium_seat_rotation(config).await
+}
+
+#[tauri::command]
+pub async fn codex_premium_seat_control(action: String)
+    -> Result<crate::modules::codex_seat_rotation::State, String> {
+    codex_local_access::control_premium_seat_rotation(&action).await
+}
+
+#[tauri::command]
 pub async fn codex_local_access_get_state() -> Result<CodexLocalAccessState, String> {
     codex_local_access::get_local_access_state().await
 }

@@ -91,7 +91,11 @@ fn account_quota_cooldown(account: &CodexAccount, now: i64) -> Option<AccountQuo
     }
     let quota = account.quota.as_ref()?;
     let updated_at_ms = account.usage_updated_at.unwrap_or_default().saturating_mul(1000);
-    if quota_has_usable_credits(quota) {
+    let subscription_available = quota.raw_data.as_ref().is_some_and(|raw| {
+        crate::modules::codex_seat_rotation::quota_evidence(raw, now / 1000).0
+            == crate::modules::codex_seat_rotation::QuotaEvidence::Available
+    });
+    if subscription_available || quota_has_usable_credits(quota) {
         return Some(AccountQuotaCooldown {
             exhausted: false,
             reset_at_ms: None,

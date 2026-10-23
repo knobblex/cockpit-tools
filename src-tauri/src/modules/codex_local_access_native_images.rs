@@ -27,6 +27,7 @@ async fn native_image_route_once(
 ) -> Result<native_contract::ImageRoute, native_contract::ServiceError> {
     let collection = host.collection().await?;
     let key = native_caller_key(&collection, caller)?;
+    let (_, seat_state) = seat_routing_state()?;
     if collection.image_generation_mode == CodexLocalAccessImageGenerationMode::Disabled {
         return Err(native_error(
             403,
@@ -109,6 +110,7 @@ async fn native_image_route_once(
     };
     accounts.retain(|account| {
         ids.contains(&account.id)
+            && seat_route_allows(&seat_state, key.map(|key| key.id.as_str()), &account.id, caller.id == NATIVE_INTERNAL_CALLER)
             && (caller.id == NATIVE_INTERNAL_CALLER || !service_account_paused(&collection, &account.id))
             && !account.is_web_session_auth()
             && !request.excluded_account_ids.contains(&account.id)
@@ -206,6 +208,8 @@ async fn native_image_route_once(
         main_model.clone().unwrap_or_else(|| image_model.clone()),
         request.force_refresh,
         account_permit,
+        key.map(|key| key.id.as_str()),
+        caller.id == NATIVE_INTERNAL_CALLER,
         false,
     )
     .await?;

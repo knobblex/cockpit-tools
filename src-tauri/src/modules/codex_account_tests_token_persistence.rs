@@ -3,6 +3,7 @@ use super::*;
 struct StorageGuard {
     path: PathBuf,
     previous: Option<std::ffi::OsString>,
+    previous_data_dir: Option<std::ffi::OsString>,
 }
 
 impl StorageGuard {
@@ -10,9 +11,17 @@ impl StorageGuard {
         let path = std::env::temp_dir().join(format!("codex-refresh-cas-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         let previous = std::env::var_os("COCKPIT_TOOLS_TEST_DATA_DIR");
+        let previous_data_dir = std::env::var_os("COCKPIT_TOOLS_DATA_DIR");
         std::env::set_var("COCKPIT_TOOLS_TEST_DATA_DIR", &path);
+        // The cross-process token lease uses resolve_data_dir, not get_data_dir.
+        std::env::set_var("COCKPIT_TOOLS_DATA_DIR", &path);
         assert!(get_accounts_dir().starts_with(&path));
-        Self { path, previous }
+        assert!(codex_token_refresh_file_lock_path("fixture").starts_with(&path));
+        Self {
+            path,
+            previous,
+            previous_data_dir,
+        }
     }
 }
 
@@ -21,6 +30,10 @@ impl Drop for StorageGuard {
         match &self.previous {
             Some(value) => std::env::set_var("COCKPIT_TOOLS_TEST_DATA_DIR", value),
             None => std::env::remove_var("COCKPIT_TOOLS_TEST_DATA_DIR"),
+        }
+        match &self.previous_data_dir {
+            Some(value) => std::env::set_var("COCKPIT_TOOLS_DATA_DIR", value),
+            None => std::env::remove_var("COCKPIT_TOOLS_DATA_DIR"),
         }
         let _ = fs::remove_dir_all(&self.path);
     }
@@ -36,7 +49,7 @@ fn tokens(label: &str) -> CodexTokens {
 
 fn seed() -> CodexAccount {
     let account = CodexAccount::new(
-        "refresh-cas".into(),
+        format!("refresh-cas-{}", uuid::Uuid::new_v4()),
         "test@example.com".into(),
         tokens("old"),
     );
@@ -210,5 +223,225 @@ fn force_refresh_transport_failures_do_not_claim_expiration_or_require_reauth() 
     ] {
         assert_eq!(format_refresh_error_for_user(code), code);
         assert!(!super::is_reauth_required_refresh_error(code));
+    }
+}
+
+#[test]
+fn quota_recovery_exhaustion_preserves_current_metadata_and_cached_quota() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _storage = StorageGuard::new();
+    let original = seed();
+    let mut edited = original.clone();
+    edited.account_note = Some("edited while quota retry was in flight".into());
+    edited.quota = Some(
+        serde_json::from_value(serde_json::json!({
+            "hourly_percentage": 70,
+            "weekly_percentage": 80
+        }))
+        .unwrap(),
+    );
+    edited.usage_updated_at = Some(123);
+    save_account(&edited).unwrap();
+    let reason = "CODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED: retry returned 401";
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+
+    assert!(runtime
+        .block_on(mark_quota_auth_recovery_exhausted(
+            &original,
+            reason,
+            Instant::now(),
+        ))
+        .unwrap());
+
+    let stored = load_account(&original.id).unwrap();
+    assert!(stored.requires_reauth);
+    assert_eq!(stored.reauth_reason.as_deref(), Some(reason));
+    assert_eq!(stored.account_note, edited.account_note);
+    assert_eq!(stored.quota.unwrap().hourly_percentage, 70);
+    assert_eq!(stored.usage_updated_at, Some(123));
+    assert_eq!(stored.tokens.access_token, original.tokens.access_token);
+}
+
+#[test]
+fn stale_quota_recovery_cannot_mark_reauthorized_or_switched_account() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _storage = StorageGuard::new();
+    let original = seed();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    for replacement in 0..4 {
+        let mut current = original.clone();
+        match replacement {
+            0 => current.tokens = tokens("same-generation-reauthorized"),
+            1 => current.token_generation += 1,
+            2 => current.account_id = Some("another-workspace".into()),
+            _ => current.user_id = Some("another-user".into()),
+        }
+        save_account(&current).unwrap();
+        assert!(!runtime
+            .block_on(mark_quota_auth_recovery_exhausted(
+                &original,
+                "CODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED: stale retry",
+                Instant::now(),
+            ))
+            .unwrap());
+        assert!(!load_account(&original.id).unwrap().requires_reauth);
+    }
+}
+
+#[test]
+fn quota_recovery_reuses_new_credentials_without_rotating_or_scanning_profiles() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _storage = StorageGuard::new();
+    let original = seed();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    for generation in [original.token_generation, original.token_generation + 1] {
+        let mut current = original.clone();
+        current.tokens.access_token = "at-newer-opaque-token".into();
+        current.tokens.refresh_token = Some("newer-refresh-token".into());
+        current.token_generation = generation;
+        save_account(&current).unwrap();
+
+        for force in [false, true] {
+            let (reused, committed) = runtime
+                .block_on(recover_account_for_quota_query(&original, force))
+                .expect("a newer credential snapshot must be reused before profile/network work");
+
+            assert!(!committed);
+            assert_eq!(reused.token_generation, generation);
+            assert_eq!(reused.tokens.access_token, current.tokens.access_token);
+            assert_eq!(reused.tokens.refresh_token, current.tokens.refresh_token);
+            assert!(!load_account(&original.id).unwrap().requires_reauth);
+        }
+    }
+}
+
+#[test]
+fn quota_recovery_rejects_changed_workspace_before_profile_or_network_work() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _storage = StorageGuard::new();
+    let original = seed();
+    let mut current = original.clone();
+    current.account_id = Some("another-workspace".into());
+    save_account(&current).unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    for force in [false, true] {
+        assert_eq!(
+            runtime
+                .block_on(recover_account_for_quota_query(&original, force))
+                .unwrap_err(),
+            "CODEX_STALE_QUOTA_REQUEST"
+        );
+    }
+    assert!(!load_account(&original.id).unwrap().requires_reauth);
+}
+
+#[test]
+fn missing_refresh_token_failure_is_snapshot_guarded() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _storage = StorageGuard::new();
+    let mut original = seed();
+    original.tokens.refresh_token = None;
+    save_account(&original).unwrap();
+    let mut current = original.clone();
+    current.account_note = Some("preserve concurrent edit".into());
+    save_account(&current).unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let error = runtime
+        .block_on(perform_managed_token_refresh_with_outcome(
+            original.clone(),
+            "quota missing RT test",
+            true,
+        ))
+        .unwrap_err();
+    assert_eq!(error, CODEX_MISSING_REFRESH_TOKEN_REAUTH_REASON);
+    let marked = load_account(&original.id).unwrap();
+    assert!(marked.requires_reauth);
+    assert_eq!(marked.account_note, current.account_note);
+
+    current.tokens = tokens("reauthorized");
+    current.requires_reauth = false;
+    current.reauth_reason = None;
+    save_account(&current).unwrap();
+    let (reused, committed) = runtime
+        .block_on(perform_managed_token_refresh_with_outcome(
+            original,
+            "stale quota missing RT test",
+            true,
+        ))
+        .unwrap();
+    assert!(!committed);
+    assert_eq!(reused.tokens.access_token, current.tokens.access_token);
+    assert!(!load_account(&current.id).unwrap().requires_reauth);
+}
+
+#[test]
+fn quota_recovery_failure_cannot_override_newer_success_with_same_credentials() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _storage = StorageGuard::new();
+    let original = seed();
+    let started = Instant::now();
+    let quota = serde_json::from_value(serde_json::json!({
+        "hourly_percentage": 65,
+        "weekly_percentage": 75
+    }))
+    .unwrap();
+    save_refreshed_quota(
+        &original,
+        quota,
+        None,
+        started + Duration::from_millis(1),
+    )
+    .unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+
+    assert!(!runtime
+        .block_on(mark_quota_auth_recovery_exhausted(
+            &original,
+            "CODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED: older failure",
+            started,
+        ))
+        .unwrap());
+
+    let stored = load_account(&original.id).unwrap();
+    assert!(!stored.requires_reauth);
+    assert_eq!(stored.quota.unwrap().hourly_percentage, 65);
+}
+
+#[test]
+fn quota_recovery_allows_only_committed_refresh_to_enrich_unknown_claims() {
+    let expected = CodexAccount::new(
+        "quota-identity-enrichment".into(),
+        "test@example.com".into(),
+        tokens("original"),
+    );
+    let mut refreshed = expected.clone();
+    refreshed.user_id = Some("user-current".into());
+    refreshed.account_id = Some("workspace-current".into());
+    refreshed.organization_id = Some("org-current".into());
+    assert!(quota_recovery_result_identity_matches(&refreshed, &expected, true));
+    assert!(!quota_recovery_result_identity_matches(&refreshed, &expected, false));
+
+    for changed in 0..5 {
+        let mut incompatible = refreshed.clone();
+        match changed {
+            0 => incompatible.user_id = Some("another-user".into()),
+            1 => incompatible.account_id = Some("another-workspace".into()),
+            2 => incompatible.organization_id = Some("another-org".into()),
+            3 => incompatible.email = "another@example.com".into(),
+            _ => incompatible.token_source_mode = CODEX_TOKEN_SOURCE_WEB_SESSION.into(),
+        }
+        assert!(!quota_recovery_result_identity_matches(&incompatible, &refreshed, true));
     }
 }

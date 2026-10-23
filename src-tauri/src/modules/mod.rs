@@ -46,6 +46,7 @@ pub mod codex_instance;
 pub mod codex_profile_copy;
 pub mod codex_local_access;
 pub(crate) mod codex_request_summary;
+pub mod codex_seat_rotation;
 pub mod codex_native_api;
 pub(crate) mod codex_continuity_worker;
 pub mod codex_api_identity;

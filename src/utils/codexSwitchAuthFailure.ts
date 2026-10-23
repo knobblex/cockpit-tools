@@ -133,21 +133,46 @@ export function isCodexApiOnlyAccessTokenUsable(
   );
 }
 
-export function isCodexRefreshTokenReauthReason(reason?: string | null): boolean {
+export function isCodexRefreshTokenReauthReason(
+  reason?: string | null,
+  errorCode?: string | null,
+): boolean {
   const normalized = reason?.trim().toLowerCase() || "";
-  if (!normalized) return false;
+  // Upstream API bodies can say “Please try refreshing it.” for an expired
+  // access token. Only the refresh diagnostic/code can establish failed renewal.
+  const diagnostic = normalized.split(/\s*\[body\s*[:=]/, 1)[0];
+  const evidence = `${errorCode?.trim().toLowerCase() || ""} ${diagnostic}`.trim();
+  if (!evidence) return false;
   // Refresh races, regional policy and local proxy failures do not invalidate login.
-  if (isCodexRefreshTokenReusedReason(normalized) ||
-      normalized.includes("unsupported_country_region_territory") ||
-      /\bproxy_[a-z_]+\b/.test(normalized)) return false;
+  if (isCodexRefreshTokenReusedReason(evidence) ||
+      evidence.includes("unsupported_country_region_territory") ||
+      evidence.includes("当前网络地区不支持刷新 codex 授权") ||
+      /\bproxy_[a-z_]+\b/.test(evidence)) return false;
   return (
-    /\b(?:refresh_token_expired|refresh_token_invalidated|token_invalidated|token_revoked|invalid_grant|invalid_refresh_token)\b/.test(normalized) ||
-    normalized.includes("invalid refresh token") ||
-    normalized.includes("authentication token has been invalidated") ||
-    normalized.includes("登录授权已被服务端撤销") ||
-    ((normalized.includes("status=401") || normalized.includes("401 unauthorized")) &&
-      !/proxy|certificate|\btls\b|\bssl\b/.test(normalized) &&
-      (normalized.includes("refresh") || normalized.includes("刷新") || normalized.includes("登录授权无效")))
+    /\b(?:refresh_token_expired|refresh_token_invalidated|token_invalidated|token_revoked|invalid_grant|invalid_refresh_token)\b/.test(evidence) ||
+    evidence.includes("invalid refresh token") ||
+    evidence.includes("authentication token has been invalidated") ||
+    evidence.includes("登录授权已被服务端撤销") ||
+    evidence.includes("缺少 refresh_token") ||
+    evidence.includes("token 已过期且无 refresh_token") ||
+    /\bmissing refresh[_ ]token\b/.test(evidence) ||
+    ((diagnostic.includes("status=401") || diagnostic.includes("401 unauthorized")) &&
+      !/proxy|certificate|\btls\b|\bssl\b/.test(diagnostic) &&
+      (/^(?:token\s*刷新|刷新\s*token|(?:token\s+|oauth\s+)?refresh\b)/.test(diagnostic) ||
+        diagnostic.includes("登录授权无效")))
+  );
+}
+
+/** A plain quota API 401 is recoverable until the backend confirms otherwise. */
+export function isCodexReauthRequiredError(
+  reason?: string | null,
+  errorCode?: string | null,
+): boolean {
+  const diagnostic = reason?.split(/\s*\[body\s*[:=]/i, 1)[0] || "";
+  return (
+    /\bCODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED\b/.test(diagnostic) ||
+    errorCode?.trim().toUpperCase() === "CODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED" ||
+    isCodexRefreshTokenReauthReason(reason, errorCode)
   );
 }
 
@@ -203,10 +228,12 @@ export function isCodexServerRevokedReauth(
   return (
     reason.includes("refresh_token_invalidated") ||
     reason.includes("token_invalidated") ||
+    reason.includes("token_revoked") ||
     reason.includes("authentication token has been invalidated") ||
     reason.includes("服务端撤销") ||
     quotaCode === "refresh_token_invalidated" ||
-    quotaCode === "token_invalidated"
+    quotaCode === "token_invalidated" ||
+    quotaCode === "token_revoked"
   );
 }
 

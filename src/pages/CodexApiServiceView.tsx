@@ -13,6 +13,7 @@ import { isCodexChatgptPlanAccount } from "../types/codex";
 import { CodexGatewayModeControl, formatCodexGatewayModeError } from "../components/codex/CodexGatewayModeControl";
 import { CodexSessionIdentityMappingControl } from "../components/codex/CodexSessionIdentityMappingControl";
 import { CodexSpeedControl } from "../components/codex/CodexSpeedControl";
+import { CodexPremiumSeatRotationControl } from "../components/codex/CodexPremiumSeatRotationControl";
 import { Activity, BadgeDollarSign, ChevronDown, Check, CircleAlert, Copy, Eye, EyeOff, FolderPlus, Gauge, Image, Pin, PinOff, Play, Plus, Power, RefreshCw, Route, Send, ShieldCheck, SlidersHorizontal, Trash2, Undo2, Wrench, X } from "lucide-react";
 import { CodexIcon } from "../components/icons/CodexIcon";
 import { ManualHelpIconButton } from "../components/ManualHelpIconButton";
@@ -575,6 +576,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
 
         {activeTab === "overview" && (
           <div className="codex-api-service-grid two">
+            <CodexPremiumSeatRotationControl accounts={accounts} collection={collection} />
             <section className="codex-api-service-panel">
               <div className="codex-api-service-panel-head">
                 <h2>{t("codex.localAccess.configTitle", "服务配置")}</h2>

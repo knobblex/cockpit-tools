@@ -6,6 +6,9 @@ This note describes the local service shown in the UI as **Codex API Service**.
 It is not a hosted Cockpit API. The desktop application creates a local,
 authenticated OpenAI-compatible gateway and can redirect Codex profiles to it.
 
+Optional [premium seat rotation](codex-premium-seat-rotation.md) coordinates an
+existing workspace seat and native routing. It is experimental and disabled by default.
+
 The repository was imported from `jlcodes99/cockpit-tools` at commit
 `9525a2b5fc519874d42213e6cac9cc90fd38ae82` on 2026-07-14.
 
@@ -92,7 +95,8 @@ profile, especially for WSL.
   wins for an existing conversation.
 - Session affinity is enabled by default. Routing also observes cooldown and
   account-health state; retries are bounded by the configured credential count and
-  delay.
+  delay. Subscription quota cooldown shares the [availability predicate](../src-tauri/src/modules/codex_seat_rotation.rs)
+  documented in [premium seat monitoring](codex-premium-seat-rotation.md#自动流程).
 - Named API keys can be disabled, limited by allowed/excluded models, and assigned
   a model prefix. The primary collection key remains for backward compatibility.
 - Bound OAuth quota reserve can exclude an OAuth account when its fresh hourly or

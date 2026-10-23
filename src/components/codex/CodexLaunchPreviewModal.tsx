@@ -91,7 +91,7 @@ import {
 import { useCodexImageModelConfig } from "./useCodexImageModelConfig";
 import { eligibleImageAccountIds, configuredImageAccountIds, resolveImageAccountModel, selectedImageAccountModels } from "../../utils/codexImageAccounts";
 import { CodexImageAccountPickerModal } from "./CodexImageAccountPickerModal";
-import { getCodexJwtExpiration, isCodexAccountReauthRequired, isCodexRefreshTokenReauthReason } from "../../utils/codexSwitchAuthFailure";
+import { getCodexJwtExpiration, isCodexAccountReauthRequired, isCodexReauthRequiredError } from "../../utils/codexSwitchAuthFailure";
 import type { UnifiedQuotaMetric } from "../../presentation/platformAccountPresentation";
 import { buildCodexAccountPresentation } from "../../presentation/platformAccountPresentation";
 import { ModalErrorMessage, useModalErrorState } from "../ModalErrorMessage";
@@ -1498,7 +1498,7 @@ export function CodexLaunchPreviewModal({
       setManualRefreshResult({
         status: "error",
         error: errorMessage,
-        requiresReauth: isCodexRefreshTokenReauthReason(errorMessage) || isCodexAccountReauthRequired(latestAccount),
+        requiresReauth: isCodexReauthRequiredError(errorMessage) || isCodexAccountReauthRequired(latestAccount),
       });
     } finally {
       setForceRefreshing(false);

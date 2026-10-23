@@ -1003,6 +1003,23 @@ async fn native_select_route_once(
 ) -> Result<native_contract::Route, native_contract::ServiceError> {
     let collection = host.collection().await?;
     let key = native_caller_key(&collection, caller)?;
+    let (_, seat_state) = seat_routing_state()?;
+    let seat_key = key.map(|key| key.id.as_str());
+    let seat_internal = caller.id == NATIVE_INTERNAL_CALLER;
+    if request.preferred_account_id.as_deref().is_some_and(|id| !seat_route_allows(&seat_state, seat_key, id, seat_internal)) {
+        return Err(native_error(409, "seat_rotation_continuation_unavailable", "The original account is unavailable after a seat change; start a new conversation or wait for its recovery"));
+    }
+    if seat_state.routing_unverified(seat_key, seat_internal, seat_now()) {
+        return Err(native_error(
+            503,
+            "premium_seat_not_verified",
+            &format!(
+                "Premium seat routing is not verified: {}",
+                seat_state.message.as_deref()
+                    .unwrap_or("waiting for member, seat and quota verification"),
+            ),
+        ));
+    }
     let public_model = native_model_for_key(&collection, key, &request.model)?;
     let plan = native_model_route_plan(&collection, key, &public_model)?;
     // A continuation pins the credential namespace, never an account's currently
@@ -1133,6 +1150,7 @@ async fn native_select_route_once(
     }
     accounts.retain(|account| {
         native_eligible(account)
+            && seat_route_allows(&seat_state, seat_key, &account.id, seat_internal)
             && native_auxiliary_eligible(account, request.auxiliary.as_deref())
             && !request.excluded_account_ids.contains(&account.id)
             && !account.official_registration_id.as_ref().is_some_and(|id| {
@@ -1370,6 +1388,8 @@ async fn native_select_route_once(
         upstream_model,
         request.force_refresh,
         permit,
+        seat_key,
+        seat_internal,
         matches!(
             request.auxiliary.as_deref(),
             Some("responses.websocket" | "realtime")
@@ -1683,8 +1703,11 @@ async fn native_route_for_reserved_account(
     upstream_model: String,
     force_refresh: bool,
     permit: Option<Arc<dyn Send + Sync>>,
+    seat_key: Option<&str>,
+    seat_internal: bool,
     http1_only: bool,
 ) -> Result<native_contract::Route, native_contract::ServiceError> {
+    let permit = seat_native_lease(&account, seat_key, seat_internal, permit)?;
     let account = native_prepare_account(account, force_refresh).await?;
     let (account, mut headers, base_url, official_authorization_revision) =
         native_account_credentials(account, force_refresh).await?;
@@ -1819,6 +1842,7 @@ async fn native_route_for_reserved_account(
     if headers.contains_key("x-xai-token-auth") {
         crate::modules::grok_client_version::refresh_in_background(client.clone());
     }
+    seat_validate_prepared_route(&account, seat_key, seat_internal)?;
     Ok(native_contract::Route {
         official_fallback_registration_id: None,
         official_fallback_authorization_revision: None,

@@ -106,6 +106,7 @@ export interface CodexLocalAccessApiKey {
   label: string;
   key: string;
   providerGateway?: unknown | null;
+  modelRouting?: unknown | null;
   inheritAccountPool?: boolean;
   accountIds?: string[];
   priorityAccountIds?: string[];

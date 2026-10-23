@@ -269,6 +269,7 @@ async fn prepare_excluding_inner(
             if matches!(
                 error.code,
                 "account_cooling" | "account_binding_unavailable" | "no_available_account"
+                    | "seat_rotation_continuation_unavailable"
             ) && rebuild_plan.is_some()
                 && request.preferred_account_id.is_some() =>
         {

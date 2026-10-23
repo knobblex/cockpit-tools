@@ -2193,6 +2193,7 @@ async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
 async fn ensure_runtime_loaded() -> Result<(), String> {
     ensure_runtime_loaded_without_start().await?;
     ensure_bound_oauth_quota_monitor_started();
+    ensure_premium_seat_monitor_started();
 
     let should_start = {
         let runtime = gateway_runtime().lock().await;
@@ -2215,6 +2216,7 @@ async fn ensure_runtime_loaded() -> Result<(), String> {
 async fn ensure_runtime_loaded_for_app_startup() -> Result<(), String> {
     ensure_runtime_loaded_without_start_with_profile_restore(false).await?;
     ensure_bound_oauth_quota_monitor_started();
+    ensure_premium_seat_monitor_started();
 
     let should_start = {
         let runtime = gateway_runtime().lock().await;

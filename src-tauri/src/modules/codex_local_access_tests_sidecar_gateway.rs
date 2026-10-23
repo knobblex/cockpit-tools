@@ -363,6 +363,20 @@
     }
 
     #[test]
+    fn explicit_subscription_allowance_keeps_a_zero_window_account_schedulable() {
+        let mut account = oauth_account_with_quota(0, 100, Some(serde_json::json!({
+            "rate_limit": {"allowed": true, "limit_reached": false,
+                "primary_window": {"used_percent": 100, "limit_window_seconds": 604800, "reset_at": 9000},
+                "secondary_window": null}
+        })));
+        assert!(!super::account_quota_cooldown(&account, 1_800_000).unwrap().exhausted);
+        let raw = account.quota.as_mut().unwrap().raw_data.as_mut().unwrap();
+        raw["rate_limit"]["allowed"] = false.into();
+        raw["rate_limit"]["limit_reached"] = true.into();
+        assert!(super::account_quota_cooldown(&account, 1_800_000).unwrap().exhausted);
+    }
+
+    #[test]
     fn remaining_credits_keep_zero_window_accounts_out_of_quota_cooldown() {
         let now = 1_800_000_i64;
         let credit_account = oauth_account_with_quota(

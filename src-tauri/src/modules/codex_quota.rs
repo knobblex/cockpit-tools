@@ -970,6 +970,98 @@ async fn refresh_account_tokens(account: &mut CodexAccount, reason: &str) -> Res
     Ok(())
 }
 
+fn is_recoverable_quota_auth_error(message: &str) -> bool {
+    // Only inspect our HTTP diagnostic prefix, never numbers or instructions
+    // inside the upstream body/request IDs. Explicit revocation is terminal.
+    let diagnostic = message.trim_start();
+    let end = [" [body_len:", " [request-id:", " [x-request-id:", " [cf-ray:", " [body:"]
+        .into_iter()
+        .filter_map(|marker| diagnostic.find(marker))
+        .min()
+        .unwrap_or(diagnostic.len());
+    let diagnostic = &diagnostic[..end];
+    let Some(status) = diagnostic.strip_prefix("API 返回错误 ") else {
+        return false;
+    };
+    status.split_whitespace().next() == Some("401")
+        && matches!(
+            extract_error_code_from_message(diagnostic).as_deref(),
+            None | Some("token_expired" | "invalid_token")
+        )
+}
+
+async fn fetch_quota_with_auth_recovery(
+    account: &mut CodexAccount,
+    query_started: std::time::Instant,
+) -> Result<FetchQuotaResult, String> {
+    fetch_quota_with_auth_recovery_using(
+        account,
+        |account| async move { fetch_quota(&account).await },
+        |account, force| async move {
+            codex_account::recover_account_for_quota_query(&account, force).await
+        },
+        |account, reason| async move {
+            codex_account::mark_quota_auth_recovery_exhausted(&account, &reason, query_started).await
+        },
+    )
+    .await
+}
+
+// Keep recovery above fetch_quota: import probes are not persisted accounts,
+// and fresh OAuth callbacks must not adopt an older official runtime snapshot.
+async fn fetch_quota_with_auth_recovery_using<F, Q, R, C, M, A>(
+    account: &mut CodexAccount,
+    mut fetch: F,
+    mut recover: R,
+    mut mark_exhausted: M,
+) -> Result<FetchQuotaResult, String>
+where
+    F: FnMut(CodexAccount) -> Q,
+    Q: std::future::Future<Output = Result<FetchQuotaResult, String>>,
+    R: FnMut(CodexAccount, bool) -> C,
+    C: std::future::Future<Output = Result<(CodexAccount, bool), String>>,
+    M: FnMut(CodexAccount, String) -> A,
+    A: std::future::Future<Output = Result<bool, String>>,
+{
+    let first = fetch(account.clone()).await;
+    if account.is_api_key_auth()
+        || account.is_agent_identity_auth()
+        || account.is_web_session_auth()
+        || !first.as_ref().err().is_some_and(|e| is_recoverable_quota_auth_error(e))
+    {
+        return first;
+    }
+
+    let (synced, _) = recover(account.clone(), false).await?;
+    let access_changed = synced.tokens.access_token != account.tokens.access_token;
+    *account = synced;
+    if access_changed {
+        let retried = fetch(account.clone()).await;
+        if !retried.as_ref().err().is_some_and(|e| is_recoverable_quota_auth_error(e)) {
+            return retried;
+        }
+    }
+
+    // The authority rechecks under both locks and can reuse a concurrent refresh.
+    // At most one RT rotation and three quota GETs belong to this recovery.
+    let (refreshed, committed_refresh) = recover(account.clone(), true).await?;
+    *account = refreshed;
+    match fetch(account.clone()).await {
+        Err(error) if committed_refresh && is_recoverable_quota_auth_error(&error) => {
+            let reason = format!(
+                "CODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED: 凭据已同步并续期，但额度接口仍拒绝认证，请重新授权。原始错误: {error}"
+            );
+            if mark_exhausted(account.clone(), reason.clone()).await? {
+                Err(reason)
+            } else {
+                // A newer login won while the last request was in flight.
+                Err(error)
+            }
+        }
+        result => result,
+    }
+}
+
 /// 查询单个账号的配额
 pub async fn fetch_quota(account: &CodexAccount) -> Result<FetchQuotaResult, String> {
     let account_id = account.account_id.clone().or_else(|| {
@@ -1791,23 +1883,24 @@ async fn refresh_account_quota_once(
         force: options.force_subscription_refresh,
     };
     let quota_query_started = std::time::Instant::now();
-    let result = match fetch_quota(&account).await {
+    let result = match fetch_quota_with_auth_recovery(&mut account, quota_query_started).await {
         Ok(result) => result,
         Err(e) => {
-            if quota_only {
-                let original = account.clone();
-                let error = e.clone();
-                let saved = tokio::task::spawn_blocking(move || {
-                    codex_account::save_quota_sync_failure(&original, error, quota_query_started)
-                }).await;
-                if !matches!(saved, Ok(Ok(()))) {
-                    logger::log_warn("[Codex Quota Sync] failed to persist refresh failure");
-                }
-                return Err(e);
+            let original = account.clone();
+            let error = e.clone();
+            let saved = tokio::task::spawn_blocking(move || {
+                codex_account::save_quota_sync_failure(&original, error, quota_query_started)
+            }).await;
+            if !matches!(saved, Ok(Ok(()))) {
+                logger::log_warn("[Codex Quota Sync] failed to persist refresh failure");
             }
             // Retrying subscription through an unavailable local proxy only adds
-            // more work to the same saturated resource and cannot repair quota.
-            if !quota_only && !is_local_proxy_error(&e) {
+            // work; rejected credentials cannot repair subscription data either.
+            if !quota_only && !is_local_proxy_error(&e)
+                && !is_recoverable_quota_auth_error(&e)
+                && !e.contains("CODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED")
+            {
+                let before_subscription = account.clone();
                 if let Err(subscription_error) =
                     refresh_subscription_state(&mut account, subscription_options).await
                 {
@@ -1816,10 +1909,10 @@ async fn refresh_account_quota_once(
                         account.email, subscription_error
                     ));
                 }
-            }
-            if write_quota_error(&mut account, e.clone()) {
-                if let Err(save_err) = codex_account::save_account_preserving_egress_proxy(&account) {
-                    logger::log_warn(&format!("写入 Codex 配额错误失败: {}", save_err));
+                if let Err(save_error) = codex_account::save_quota_subscription_maintenance(
+                    &before_subscription, &account,
+                ) {
+                    logger::log_warn(&format!("写入 Codex 订阅维护状态失败: {save_error}"));
                 }
             }
             return Err(e);
@@ -2272,6 +2365,10 @@ async fn refresh_all_quotas_with_options(
     )
     .await
 }
+
+#[cfg(test)]
+#[path = "codex_quota_recovery_tests.rs"]
+mod recovery_tests;
 
 #[cfg(test)]
 mod tests {

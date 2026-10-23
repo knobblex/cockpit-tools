@@ -46,7 +46,9 @@ test('unknown proxy faults and arbitrary wrappers remain visible', () => {
     assert.equal(isLocalCodexProxyError(message), false);
     assert.equal(getCodexAccountQuotaError(error), error);
   }
-  assert.equal(isCodexOverviewAccountAbnormal(account('API 返回错误 401 Unauthorized')), true);
+  const unauthorized = account('API 返回错误 401 Unauthorized');
+  assert.ok(getCodexAccountQuotaError(unauthorized.quota_error));
+  assert.equal(isCodexOverviewAccountAbnormal(unauthorized), false);
 });
 
 test('local quota errors do not hide independent account reauthorization requirements', () => {

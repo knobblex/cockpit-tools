@@ -96,3 +96,20 @@ test('confirmed newer quota updates survive the initial authoritative list and t
   assert.equal(s.store.getState().accounts.find((account: any) => account.id === 'a').quota.weekly_percentage, 43);
   assert.equal(s.store.getState().currentAccount, returned);
 });
+
+test('live quota sequences update team metadata while cached replay preserves an authoritative profile', () => {
+  const s = setup();
+  const account = { id: 'a', token_generation: 2, usage_updated_at: 1234, account_structure: 'unknown' };
+  s.store.setState({ accounts: [account], currentAccount: account });
+  const update = { account_id: 'a', token_generation: 2, usage_updated_at: 1234,
+    sequence: 1, quota: { hourly_percentage: 42, weekly_percentage: 43 }, plan_type: 'prolite', account_structure: 'workspace' };
+  s.store.getState().applyQuotaUpdate(update);
+  assert.equal(s.store.getState().accounts[0].account_structure, 'workspace');
+  assert.equal(s.store.getState().currentAccount.account_structure, 'workspace');
+  s.store.getState().applyQuotaUpdate({ ...update, account_structure: 'personal' });
+  assert.equal(s.store.getState().currentAccount.account_structure, 'workspace', 'duplicate sequence is ignored');
+  s.store.getState().applyAccountSnapshot({ ...account, account_structure: 'personal' });
+  assert.equal(s.store.getState().currentAccount.account_structure, 'personal', 'same-timestamp cached event cannot undo the profile read');
+  s.store.getState().applyQuotaUpdate({ ...update, sequence: 2, account_structure: 'workspace' });
+  assert.equal(s.store.getState().currentAccount.account_structure, 'workspace', 'a genuinely new event still applies within the same second');
+});

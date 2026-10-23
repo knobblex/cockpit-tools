@@ -435,6 +435,8 @@ async fn native_prepare_official_local_fallback(
         upstream,
         request.force_refresh,
         permit,
+        key.map(|key| key.id.as_str()),
+        caller.id == NATIVE_INTERNAL_CALLER,
         request.auxiliary.as_deref() == Some("responses.websocket"),
     )
     .await?;

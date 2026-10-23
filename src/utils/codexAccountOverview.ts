@@ -14,6 +14,7 @@ import { splitValidityFilterValues } from "./accountValidityFilter";
 import { compareCurrentAccountFirst } from "./currentAccountSort";
 import {
   isCodexClientReauthNoticeOnly,
+  isCodexReauthRequiredError,
   isCodexRefreshTokenReusedAccount,
 } from "./codexSwitchAuthFailure";
 import { normalizeAccountsOverviewScope } from "./accountsOverviewFilterPersistence";
@@ -309,10 +310,6 @@ export function isCodexOverviewAccountAbnormal(
   const rawMessage = getCodexAccountQuotaError(account.quota_error)?.message?.trim() ?? "";
   if (!rawMessage) return false;
   const lowerRawMessage = rawMessage.toLowerCase();
-  const statusCode =
-    rawMessage.match(/API 返回错误\s+(\d{3})/i)?.[1] ||
-    rawMessage.match(/status[=: ]+(\d{3})/i)?.[1] ||
-    "";
   const errorCode = (
     account.quota_error?.code ||
     rawMessage.match(/\[error_code:([^\]]+)\]/)?.[1] ||
@@ -322,34 +319,10 @@ export function isCodexOverviewAccountAbnormal(
     .trim()
     .toLowerCase();
 
-  if (
-    errorCode === "unsupported_country_region_territory" ||
-    lowerRawMessage.includes("unsupported_country_region_territory") ||
-    lowerRawMessage.includes("当前网络地区不支持刷新 codex 授权")
-  ) {
-    return false;
-  }
-
   return (
-    statusCode === "401" ||
     errorCode === "deactivated_workspace" ||
-    errorCode === "refresh_token_expired" ||
-    errorCode === "refresh_token_invalidated" ||
-    errorCode === "token_invalidated" ||
-    errorCode === "invalid_grant" ||
-    errorCode === "invalid_token" ||
     lowerRawMessage.includes("deactivated_workspace") ||
-    lowerRawMessage.includes("refresh_token_expired") ||
-    lowerRawMessage.includes("refresh_token_invalidated") ||
-    lowerRawMessage.includes("token_invalidated") ||
-    lowerRawMessage.includes("refresh_token 已被其它客户端或实例使用过") ||
-    lowerRawMessage.includes("your authentication token has been invalidated") ||
-    lowerRawMessage.includes("401 unauthorized") ||
-    lowerRawMessage.includes("invalid_grant") ||
-    lowerRawMessage.includes("token 已过期且无 refresh_token") ||
-    lowerRawMessage.includes("缺少 refresh_token") ||
-    lowerRawMessage.includes("token 已过期且刷新失败") ||
-    lowerRawMessage.includes("刷新 token 失败")
+    isCodexReauthRequiredError(rawMessage, errorCode)
   );
 }
 

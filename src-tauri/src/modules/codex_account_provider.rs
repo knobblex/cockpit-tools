@@ -2421,7 +2421,15 @@ fn parse_account_profile_from_check_response(
     payload: &serde_json::Value,
     account: &CodexAccount,
 ) -> (Option<String>, Option<String>, Option<String>) {
-    let records = collect_account_records(payload);
+    // accounts/check may wrap profile fields under `account`, alongside the
+    // entitlement. Unwrap only here: other account-check consumers need both.
+    let records = collect_account_records(payload)
+        .into_iter()
+        .filter_map(|record| match record.get("account") {
+            Some(account) => account.as_object().map(|_| account.clone()),
+            None => Some(record),
+        })
+        .collect::<Vec<_>>();
     if records.is_empty() {
         return (None, None, None);
     }
@@ -2432,9 +2440,10 @@ fn parse_account_profile_from_check_response(
         .and_then(|items| items.first())
         .and_then(|value| value.as_str())
         .and_then(|value| normalize_optional_ref(Some(value)));
-    let expected_account_id =
-        extract_chatgpt_account_id_from_access_token(&account.tokens.access_token)
-            .or_else(|| normalize_optional_ref(account.account_id.as_deref()));
+    // Match the same explicit workspace sent in ChatGPT-Account-Id. A profile
+    // refresh must never switch it to the token's default or another workspace.
+    let expected_account_id = normalize_optional_ref(account.account_id.as_deref())
+        .or_else(|| extract_chatgpt_account_id_from_access_token(&account.tokens.access_token));
     let expected_org_id = normalize_optional_ref(account.organization_id.as_deref());
 
     let mut selected_record: Option<serde_json::Value> = None;
@@ -2453,6 +2462,11 @@ fn parse_account_profile_from_check_response(
                 normalize_optional_ref(candidate_id.as_deref()) == Some(expected_id.to_string())
             })
             .cloned();
+        // Returning no fields prevents the merge from overwriting the selected
+        // account with the response ordering/default when the target is absent.
+        if selected_record.is_none() {
+            return (None, None, None);
+        }
     }
 
     if selected_record.is_none() {
@@ -2523,4 +2537,144 @@ fn parse_account_profile_from_check_response(
     );
 
     (account_name, account_structure, account_id)
+}
+
+#[cfg(test)]
+mod account_profile_response_tests {
+    use super::*;
+
+    fn account(workspace: Option<&str>) -> CodexAccount {
+        let mut account = CodexAccount::new(
+            "local-profile".into(),
+            "profile@example.com".into(),
+            CodexTokens {
+                access_token: String::new(),
+                id_token: String::new(),
+                refresh_token: None,
+            },
+        );
+        account.account_id = workspace.map(str::to_owned);
+        account
+    }
+
+    #[test]
+    fn nested_object_profile_matches_the_requested_workspace_not_ordering() {
+        let result = parse_account_profile_from_check_response(
+            &serde_json::json!({
+                "account_ordering": ["personal"],
+                "accounts": {
+                    "personal": {"account": {"account_id": "personal", "structure": "personal"}},
+                    "team": {"account": {"account_id": "team", "name": " Team ", "structure": " workspace "},
+                        "entitlement": {"subscription_plan": "business"}}
+                }
+            }),
+            &account(Some("team")),
+        );
+        assert_eq!(
+            result,
+            (Some("Team".into()), Some("workspace".into()), Some("team".into()))
+        );
+    }
+
+    #[test]
+    fn nested_array_and_flat_profiles_remain_supported() {
+        let profile = serde_json::json!({
+            "id": "team", "account_name": "Team", "account_structure": "team"
+        });
+        for payload in [
+            serde_json::json!({"accounts": [{"account": profile.clone()}]}),
+            serde_json::json!({"accounts": [profile.clone()]}),
+            serde_json::json!([profile]),
+        ] {
+            assert_eq!(
+                parse_account_profile_from_check_response(&payload, &account(Some("team"))),
+                (Some("Team".into()), Some("team".into()), Some("team".into())),
+            );
+        }
+    }
+
+    #[test]
+    fn missing_or_unidentified_target_never_falls_back_or_changes_saved_profile() {
+        for payload in [
+            serde_json::json!({"account_ordering": ["other"], "accounts": [
+                {"account": {"id": "other", "name": "Wrong", "structure": "workspace"}}
+            ]}),
+            serde_json::json!({"accounts": {"team": {"account": {"name": "No ID", "structure": "workspace"}}}}),
+            serde_json::json!({"accounts": [{"id": "team", "structure": "workspace", "account": null}]}),
+        ] {
+            let original = account(Some("team"));
+            let (name, structure, remote_id) =
+                parse_account_profile_from_check_response(&payload, &original);
+            assert_eq!((&name, &structure, &remote_id), (&None, &None, &None));
+            let mut current = original.clone();
+            assert!(!merge_codex_account_profile(
+                &mut current, &original, name, structure, remote_id
+            ));
+            assert_eq!(current.account_id.as_deref(), Some("team"));
+            assert_eq!(current.account_structure, None);
+        }
+    }
+
+    #[test]
+    fn explicit_workspace_wins_over_the_tokens_default_workspace() {
+        let mut account = account(Some("team"));
+        let claims = serde_json::json!({
+            "https://api.openai.com/auth": {"chatgpt_account_id": "personal"}
+        });
+        account.tokens.access_token =
+            format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(claims.to_string()));
+        let result = parse_account_profile_from_check_response(
+            &serde_json::json!({"accounts": [
+                {"id": "personal", "structure": "personal"},
+                {"id": "team", "structure": "workspace"}
+            ]}),
+            &account,
+        );
+        assert_eq!(result.1.as_deref(), Some("workspace"));
+        assert_eq!(result.2.as_deref(), Some("team"));
+    }
+
+    #[test]
+    fn token_workspace_is_strict_when_no_explicit_workspace_is_known() {
+        let mut account = account(None);
+        let claims = serde_json::json!({
+            "https://api.openai.com/auth": {"chatgpt_account_id": "team"}
+        });
+        account.tokens.access_token =
+            format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(claims.to_string()));
+        let payload = serde_json::json!({"accounts": [{"id": "other", "structure": "workspace"}]});
+        assert_eq!(
+            parse_account_profile_from_check_response(&payload, &account),
+            (None, None, None)
+        );
+    }
+
+    #[test]
+    fn unknown_workspace_retains_response_ordering_fallback() {
+        let result = parse_account_profile_from_check_response(
+            &serde_json::json!({"account_ordering": ["second"], "accounts": [
+                {"account": {"id": "first", "structure": "personal"}},
+                {"account": {"id": "second", "structure": "workspace"}}
+            ]}),
+            &account(None),
+        );
+        assert_eq!(result.2.as_deref(), Some("second"));
+    }
+
+    #[test]
+    fn personal_and_unknown_structures_are_not_replaced_with_plan_labels() {
+        for structure in [
+            serde_json::json!("personal"),
+            serde_json::json!("unknown"),
+            serde_json::Value::Null,
+        ] {
+            let result = parse_account_profile_from_check_response(
+                &serde_json::json!({"accounts": [{"account": {"id": "team", "structure": structure},
+                    "entitlement": {"subscription_plan": "business"}}]}),
+                &account(Some("team")),
+            );
+            assert_eq!(result.1.as_deref(), structure.as_str());
+            assert_eq!(result.2.as_deref(), Some("team"));
+        }
+    }
 }

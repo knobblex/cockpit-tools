@@ -19,7 +19,7 @@ import { formatCodexLoginProvider, getCodexAuthMetadata, getCodexPlanFilterKey, 
 import { canAddCodexAccountToLocalAccess, filterCodexLocalAccessAccountIds } from "../utils/codexLocalAccessAccounts";
 import { extractCodexQuotaErrorCode, extractCodexQuotaErrorStatusCode, isVerboseCodexQuotaErrorMessage, summarizeCodexQuotaErrorMessage } from "../utils/codexQuotaError";
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
-import { isCodexIdTokenReauthReason } from "../utils/codexSwitchAuthFailure";
+import { isCodexIdTokenReauthReason, isCodexReauthRequiredError } from "../utils/codexSwitchAuthFailure";
 import { CODEX_PLAN_BADGE_STYLE_CHANGED_EVENT, getCodexPlanBadgeStyle, type CodexPlanBadgeStyle } from "../utils/codexPreferences";
 import { invoke } from "@tauri-apps/api/core";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
@@ -516,35 +516,11 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
         errorCode: string;
         rawMessage: string;
       }) => {
-        const statusCode = quotaErrorMeta.statusCode.trim();
-        const errorCode = quotaErrorMeta.errorCode.trim().toLowerCase();
-        const rawMessage = quotaErrorMeta.rawMessage.trim().toLowerCase();
-        if (!statusCode && !errorCode && !rawMessage) return false;
-        if (
-          errorCode === "unsupported_country_region_territory" ||
-          rawMessage.includes("unsupported_country_region_territory") ||
-          rawMessage.includes("当前网络地区不支持刷新 codex 授权")
-        ) {
-          return false;
-        }
-  
         return (
-          statusCode === "401" ||
-          errorCode === "refresh_token_expired" ||
-          errorCode === "refresh_token_invalidated" ||
-          errorCode === "token_invalidated" ||
-          errorCode === "invalid_grant" ||
-          errorCode === "invalid_token" ||
-          rawMessage.includes("refresh_token_expired") ||
-          rawMessage.includes("refresh_token_invalidated") ||
-          rawMessage.includes("token_invalidated") ||
-          rawMessage.includes("your authentication token has been invalidated") ||
-          rawMessage.includes("401 unauthorized") ||
-          rawMessage.includes("invalid_grant") ||
-          rawMessage.includes("token 已过期且无 refresh_token") ||
-          rawMessage.includes("缺少 refresh_token") ||
-          rawMessage.includes("token 已过期且刷新失败") ||
-          rawMessage.includes("刷新 token 失败") ||
+          isCodexReauthRequiredError(
+            quotaErrorMeta.rawMessage,
+            quotaErrorMeta.errorCode,
+          ) ||
           isCodexIdTokenReauthReason(quotaErrorMeta.rawMessage)
         );
       },

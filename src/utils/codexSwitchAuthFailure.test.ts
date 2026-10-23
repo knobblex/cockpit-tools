@@ -8,6 +8,7 @@ import {
   isCodexApiServiceAuthRejected,
   isCodexClientReauthNoticeOnly,
   isCodexIdTokenReauthReason,
+  isCodexReauthRequiredError,
   isCodexRefreshTokenNoticeOnly,
   isCodexRefreshTokenReauthReason,
   isCodexRefreshTokenReusedAccount,
@@ -230,8 +231,43 @@ for (const reason of [
   'refresh status=503 upstream unavailable',
   'refresh response JSON parse failed',
   'refresh_token_reused',
+  'API 返回错误 401 Unauthorized [error_code:token_expired]',
+  'API 返回错误 401 Unauthorized [error_code:invalid_token]',
+  '刷新失败：API 返回错误 401 Unauthorized [error_code:token_expired] [body:{"error":{"message":"Your authentication token has expired. Please try refreshing it.","code":"token_expired"}}]',
+  'API 返回错误 401 Unauthorized [body:{"message":"Please refresh your credentials."}]',
+  'Token 已过期且刷新失败: error sending request',
 ]) {
   test(`ordinary refresh failure does not require login: ${reason}`, () => {
     assert.equal(isCodexRefreshTokenReauthReason(reason), false);
+    assert.equal(isCodexReauthRequiredError(reason), false);
   });
 }
+
+test('terminal quota recovery failure requires login without claiming refresh-token expiration', () => {
+  const reason = 'CODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED: API 返回错误 401 Unauthorized [error_code:token_expired]';
+  assert.equal(isCodexReauthRequiredError(reason), true);
+  assert.equal(isCodexReauthRequiredError('quota request rejected', 'codex_quota_auth_recovery_exhausted'), true);
+  assert.equal(isCodexRefreshTokenReauthReason(reason), false);
+  assert.equal(isCodexReauthRequiredError('API 返回错误 401 Unauthorized [body:CODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED]'), false);
+});
+
+test('explicit terminal codes and missing refresh tokens retain reauthorization', () => {
+  for (const code of ['refresh_token_expired', 'refresh_token_invalidated', 'token_invalidated', 'token_revoked', 'invalid_grant', 'invalid_refresh_token']) {
+    assert.equal(isCodexReauthRequiredError('request rejected', code), true, code);
+  }
+  for (const reason of ['缺少 refresh_token', 'Token 已过期且无 refresh_token', 'missing refresh token']) {
+    assert.equal(isCodexReauthRequiredError(reason), true, reason);
+  }
+  assert.equal(isCodexReauthRequiredError('request rejected', 'token_expired'), false);
+  assert.equal(isCodexReauthRequiredError('request rejected', 'refresh_token_reused'), false);
+});
+
+test('expired access-token errors do not override confirmed account reauthorization', () => {
+  const account = accountWithAccessToken('at-opaque-token');
+  account.quota_error = { code: 'token_expired', message: 'API 返回错误 401 Unauthorized', timestamp: 1 };
+  assert.equal(isCodexAccountReauthRequired(account), false);
+  account.requires_reauth = true;
+  account.reauth_reason = 'CODEX_QUOTA_AUTH_RECOVERY_EXHAUSTED';
+  assert.equal(isCodexAccountReauthRequired(account), true);
+  assert.equal(isCodexRefreshTokenNoticeOnly(account), false);
+});

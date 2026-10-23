@@ -55,6 +55,7 @@ struct TestHost {
     oauth: AtomicBool,
     passthrough: AtomicBool,
     removed_a: AtomicBool,
+    seat_rotated: AtomicBool,
     selections: Mutex<Vec<RouteRequest>>,
     failures: Mutex<Vec<(String, u16)>>,
     reports: Mutex<Vec<RequestReport>>,
@@ -76,6 +77,13 @@ impl Host for TestHost {
         Box::pin(async move {
             self.selections.lock().unwrap().push(request.clone());
             let account = if let Some(preferred) = request.preferred_account_id.as_deref() {
+                if preferred == "a" && self.seat_rotated.load(Ordering::SeqCst) {
+                    return Err(ServiceError::new(
+                        409,
+                        "seat_rotation_continuation_unavailable",
+                        "Synthetic seat moved from A to B",
+                    ));
+                }
                 if preferred == "a" && self.removed_a.load(Ordering::SeqCst) {
                     return Err(ServiceError::new(
                         503,
@@ -99,7 +107,9 @@ impl Host for TestHost {
                 ["a", "b"]
                     .into_iter()
                     .find(|candidate| {
-                        !(*candidate == "a" && self.removed_a.load(Ordering::SeqCst))
+                        !(*candidate == "a"
+                            && (self.removed_a.load(Ordering::SeqCst)
+                                || self.seat_rotated.load(Ordering::SeqCst)))
                             && !request
                                 .excluded_account_ids
                                 .iter()
@@ -351,6 +361,7 @@ impl Fixture {
             oauth: AtomicBool::new(false),
             passthrough: AtomicBool::new(false),
             removed_a: AtomicBool::new(false),
+            seat_rotated: AtomicBool::new(false),
             selections: Mutex::new(vec![]),
             failures: Mutex::new(vec![]),
             reports: Mutex::new(vec![]),
@@ -1034,3 +1045,128 @@ mod output_evidence_tests;
 
 #[path = "account_installation_http_tests.rs"]
 mod installation_tests;
+
+#[tokio::test]
+async fn context_rebuild_seat_rotation_continues_same_chat_on_current_holder() {
+    for oauth in [false, true] {
+        for streaming in [false, true] {
+            let fixture = Fixture::new(
+                true,
+                vec![Step::Complete("a-root", None)],
+                vec![
+                    Step::Complete("b-rebuilt", None),
+                    Step::Complete("b-next", None),
+                ],
+            )
+            .await;
+            fixture.host.oauth.store(oauth, Ordering::SeqCst);
+            fixture.root().await;
+            fixture.host.seat_rotated.store(true, Ordering::SeqCst);
+            let original = body(vec![message("user", "second")], Some("a-root"), streaming);
+            let response = fixture
+                .post(&original, Some("synthetic-state-a-root"))
+                .await;
+            assert_eq!(response.status(), 200);
+            assert!(response.text().await.unwrap().contains("b-rebuilt"));
+            let sent = fixture.sent();
+            assert_eq!(
+                sent.len(),
+                2,
+                "rotated-out account must not receive a new request"
+            );
+            assert_eq!(sent[1].account, "b");
+            assert_fresh(
+                &sent[0],
+                &sent[1],
+                json!([
+                    message("user", "first"),
+                    message("assistant", "answer-a-root"),
+                    message("user", "second")
+                ]),
+            );
+            assert_eq!(fixture.active().unwrap().0, "b");
+            fixture.assert_owner("a-root", "a");
+            fixture.assert_owner("b-rebuilt", "b");
+            let next = body(vec![message("user", "third")], Some("b-rebuilt"), streaming);
+            let response = fixture.post(&next, None).await;
+            assert_eq!(response.status(), 200);
+            assert!(response.text().await.unwrap().contains("b-next"));
+            assert_eq!(fixture.sent().last().unwrap().account, "b");
+            fixture.finish().await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn context_rebuild_seat_rotation_without_complete_history_preserves_original_owner() {
+    for enabled in [false, true] {
+        let fixture = Fixture::new(enabled, vec![Step::Complete("a-root", None)], vec![]).await;
+        fixture.root().await;
+        if enabled {
+            Connection::open(fixture.path()).unwrap().execute_batch(
+                "DELETE FROM native_rebuild_checkpoints_v1; DELETE FROM native_rebuild_history_v1;"
+            ).unwrap();
+        }
+        fixture.host.seat_rotated.store(true, Ordering::SeqCst);
+        let response = fixture
+            .post(
+                &body(vec![message("user", "second")], Some("a-root"), false),
+                None,
+            )
+            .await;
+        assert_eq!(response.status(), 409);
+        assert_eq!(
+            response.json::<Value>().await.unwrap()["error"]["code"],
+            "seat_rotation_continuation_unavailable"
+        );
+        assert_eq!(fixture.sent().len(), 1);
+        fixture.assert_owner("a-root", "a");
+        fixture.finish().await;
+    }
+}
+
+#[tokio::test]
+async fn context_rebuild_seat_rotation_socket_continues_on_current_holder() {
+    let fixture = Fixture::new(
+        true,
+        vec![Step::Complete("a-root", None)],
+        vec![Step::Complete("b-rebuilt", None)],
+    )
+    .await;
+    let mut socket = fixture.socket().await;
+    ws_send(
+        &mut socket,
+        body(vec![message("user", "first")], None, true),
+    )
+    .await;
+    assert_eq!(
+        ws_event(&mut socket, "response.completed").await["response"]["id"],
+        "a-root"
+    );
+    fixture.host.seat_rotated.store(true, Ordering::SeqCst);
+    ws_send(
+        &mut socket,
+        body(vec![message("user", "second")], Some("a-root"), true),
+    )
+    .await;
+    assert_eq!(
+        ws_event(&mut socket, "response.completed").await["response"]["id"],
+        "b-rebuilt"
+    );
+    let sent = fixture.sent();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1].account, "b");
+    assert_fresh(
+        &sent[0],
+        &sent[1],
+        json!([
+            message("user", "first"),
+            message("assistant", "answer-a-root"),
+            message("user", "second")
+        ]),
+    );
+    fixture.assert_owner("a-root", "a");
+    fixture.assert_owner("b-rebuilt", "b");
+    socket.close(None).await.unwrap();
+    fixture.finish().await;
+}

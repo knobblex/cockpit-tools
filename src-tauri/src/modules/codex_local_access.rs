@@ -34,6 +34,7 @@ include!("codex_local_access_native_transport.rs");
 include!("codex_local_access_direct_identity.rs");
 include!("codex_local_access_official_background.rs");
 include!("codex_local_access_native_routes.rs");
+include!("codex_local_access_seat_rotation.rs");
 include!("codex_local_access_native_capability.rs");
 include!("codex_local_access_native_images.rs");
 include!("codex_local_access_native_diagnostics.rs");

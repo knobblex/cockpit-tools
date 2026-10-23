@@ -188,6 +188,12 @@ fn native_validate_chatgpt_plan_mode(
 
 async fn switch_native_aware_gateway(mode: CodexLocalAccessGatewayMode) -> Result<(), String> {
     ensure_runtime_loaded_without_start().await?;
+    if mode != CodexLocalAccessGatewayMode::Native {
+        let seat = get_premium_seat_rotation()?;
+        if seat.config.as_ref().is_some_and(|c| c.enabled) || seat.pending() {
+            return Err("请先关闭高级席位自动调换并核对未完成操作，再切换网关引擎".into());
+        }
+    }
     let mode = if mode == CodexLocalAccessGatewayMode::Legacy {
         CodexLocalAccessGatewayMode::Sidecar
     } else {
