@@ -10,11 +10,11 @@ use std::{
     sync::Arc,
 };
 
-pub const VALIDATION_TTL_SECS: i64 = 180;
 pub const VERIFY_TIMEOUT_SECS: i64 = 180;
 pub const MIN_SWAP_INTERVAL_SECS: i64 = 300;
 pub const RAPID_EXHAUSTION_WINDOW_SECS: i64 = 30 * 60;
 pub const MONITOR_CHECK_SECS: i64 = 60;
+pub const MONITOR_RETRY_SECS: i64 = 30;
 pub const MONITOR_TICK_SECS: u64 = 30;
 pub const DRAIN_TIMEOUT_SECS: u64 = 60;
 
@@ -239,6 +239,8 @@ pub struct State {
     pub phase: Phase,
     pub holder_account_id: Option<String>,
     pub holder_user_id: Option<String>,
+    /// Last complete holder verification, retained while quota is exhausted.
+    /// Routing depends on Ready and local authorization, not a validation lease.
     pub validated_at: Option<i64>,
     pub operation: Option<Operation>,
     pub history: Vec<Operation>,
@@ -323,8 +325,7 @@ impl State {
             && self.holder_account_id.as_deref() == Some(account)
             && self
                 .validated_at
-                .and_then(|at| now.checked_sub(at))
-                .is_some_and(|age| (0..=VALIDATION_TTL_SECS).contains(&age))
+                .is_some_and(|at| at <= now)
     }
 }
 
@@ -472,6 +473,25 @@ impl Member {
             && self.pending_seat_type.is_none()
             && matches!(self.seat_type.as_str(), "default" | "prolite")
     }
+}
+
+/// Count the full key pool before model/authorization eligibility filtering, so
+/// an unusable second premium member cannot silently disappear from the policy.
+pub(crate) fn pool_premium_holder<'a>(
+    members: &'a [Member],
+    pool_user_ids: &[String],
+) -> Result<&'a Member, String> {
+    let premium = members
+        .iter()
+        .filter(|member| member.seat_type == "prolite" && pool_user_ids.contains(&member.id))
+        .collect::<Vec<_>>();
+    if premium.len() != 1 {
+        return Err("所选 API Key 的账号池内必须恰好有一个高级席位；只能调换池内成员的席位".into());
+    }
+    if !premium[0].eligible() {
+        return Err("账号池内的高级席位成员状态不满足自动调换条件".into());
+    }
+    Ok(premium[0])
 }
 
 pub fn swap_body(op: &Operation) -> Value {

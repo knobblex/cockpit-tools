@@ -152,6 +152,25 @@ fn counts() -> BTreeMap<String, u64> {
         .collect()
 }
 
+#[test]
+fn premium_holder_is_unique_in_the_full_pool_and_ignores_outside_seats() {
+    let mut remote = members(false);
+    let mut outside = remote[0].clone();
+    outside.id = "outside".into();
+    remote.push(outside);
+    let pool = vec!["ua".into(), "ub".into()];
+    assert_eq!(pool_premium_holder(&remote, &pool).unwrap().id, "ua");
+    assert!(pool_premium_holder(&remote, &["ub".into()]).is_err());
+    assert!(pool_premium_holder(&remote, &[]).is_err());
+    remote[1].seat_type = "prolite".into();
+    // Even an ineligible second premium member counts toward the pool limit.
+    remote[1].is_trial = true;
+    assert!(pool_premium_holder(&remote, &pool).is_err());
+    remote[1].seat_type = "default".into();
+    remote[0].pending_seat_type = Some("default".into());
+    assert!(pool_premium_holder(&remote, &pool).is_err());
+}
+
 struct Mock {
     dir: PathBuf,
     now: AtomicI64,
@@ -162,6 +181,7 @@ struct Mock {
     lost_post_response: AtomicBool,
     lost_snapshot_once: AtomicBool,
     snapshot_error: Mutex<Option<http::AdminError>>,
+    snapshot_error_on_read: AtomicUsize,
     permission: AtomicBool,
     team_identity: AtomicBool,
     lose_team_on_check: AtomicUsize,
@@ -169,11 +189,15 @@ struct Mock {
     snapshot_reads: AtomicUsize,
     revoke_on_check: AtomicUsize,
     conflicting_counts: AtomicBool,
+    outside_premium: AtomicBool,
+    expand_pool_on_read: AtomicUsize,
     quota_error: AtomicBool,
+    rejected_holder_credential: AtomicBool,
     temporary_quota_error: AtomicBool,
     source_available: AtomicBool,
     target_quota_error: AtomicBool,
     probe_error: AtomicBool,
+    candidate_error: AtomicBool,
     pool: Mutex<Vec<String>>,
     target: Mutex<String>,
     remove_target_on_final_check: AtomicBool,
@@ -193,6 +217,7 @@ impl Mock {
             lost_post_response: AtomicBool::new(false),
             lost_snapshot_once: AtomicBool::new(false),
             snapshot_error: Mutex::new(None),
+            snapshot_error_on_read: AtomicUsize::new(1),
             permission: AtomicBool::new(true),
             team_identity: AtomicBool::new(true),
             lose_team_on_check: AtomicUsize::new(usize::MAX),
@@ -200,11 +225,15 @@ impl Mock {
             snapshot_reads: AtomicUsize::new(0),
             revoke_on_check: AtomicUsize::new(usize::MAX),
             conflicting_counts: AtomicBool::new(false),
+            outside_premium: AtomicBool::new(false),
+            expand_pool_on_read: AtomicUsize::new(usize::MAX),
             quota_error: AtomicBool::new(false),
+            rejected_holder_credential: AtomicBool::new(false),
             temporary_quota_error: AtomicBool::new(false),
             source_available: AtomicBool::new(false),
             target_quota_error: AtomicBool::new(false),
             probe_error: AtomicBool::new(false),
+            candidate_error: AtomicBool::new(false),
             pool: Mutex::new(vec!["a".into(), "b".into()]),
             target: Mutex::new("b".into()),
             remove_target_on_final_check: AtomicBool::new(false),
@@ -226,15 +255,33 @@ impl worker::Backend for Mock {
             _ => Err("unknown member".into()),
         }
     }
-    async fn holder(&self, _: &[Member]) -> Result<String, String> {
-        Ok(if self.after.load(Ordering::SeqCst) {
-            self.target.lock().unwrap().clone()
-        } else {
-            "a".into()
-        })
+    async fn holder(&self, members: &[Member]) -> Result<String, String> {
+        let pool = self.pool.lock().unwrap();
+        let users = pool
+            .iter()
+            .map(|id| self.member(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let holder = pool_premium_holder(members, &users)?;
+        pool.iter()
+            .find(|id| self.member(id).ok().as_deref() == Some(holder.id.as_str()))
+            .cloned()
+            .ok_or_else(|| "holder outside pool".into())
     }
     async fn candidates(&self) -> Result<Vec<String>, String> {
+        if self.candidate_error.load(Ordering::SeqCst) {
+            return Err("unrelated legacy candidate is no longer eligible".into());
+        }
         Ok(self.pool.lock().unwrap().clone())
+    }
+    async fn check_holder_scope(&self, account: &str) -> Result<(), String> {
+        self.member(account)?;
+        if !self.team_identity.load(Ordering::SeqCst) {
+            return Err("holder team identity unconfirmed".into());
+        }
+        if !self.pool.lock().unwrap().iter().any(|id| id == account) {
+            return Err("holder outside current key pool".into());
+        }
+        Ok(())
     }
     async fn check_scope(&self) -> Result<(), String> {
         let check = self.scope_checks.fetch_add(1, Ordering::SeqCst) + 1;
@@ -255,9 +302,14 @@ impl worker::Backend for Mock {
         }
     }
     async fn snapshot(&self) -> Result<http::Snapshot, http::AdminError> {
-        self.snapshot_reads.fetch_add(1, Ordering::SeqCst);
-        if let Some(error) = self.snapshot_error.lock().unwrap().take() {
-            return Err(error);
+        let read = self.snapshot_reads.fetch_add(1, Ordering::SeqCst) + 1;
+        if read == self.expand_pool_on_read.load(Ordering::SeqCst) {
+            self.pool.lock().unwrap().push("c".into());
+        }
+        if read >= self.snapshot_error_on_read.load(Ordering::SeqCst) {
+            if let Some(error) = self.snapshot_error.lock().unwrap().take() {
+                return Err(error);
+            }
         }
         if self.after.load(Ordering::SeqCst)
             && self.lost_snapshot_once.swap(false, Ordering::SeqCst)
@@ -266,7 +318,8 @@ impl worker::Backend for Mock {
         }
         let after = self.after.load(Ordering::SeqCst);
         let mut remote_counts = counts();
-        let include_third = self.pool.lock().unwrap().iter().any(|id| id == "c");
+        let include_third = self.pool.lock().unwrap().iter().any(|id| id == "c")
+            && !self.outside_premium.load(Ordering::SeqCst);
         if include_third {
             remote_counts.insert("default".into(), 2);
         }
@@ -295,9 +348,18 @@ impl worker::Backend for Mock {
                 .into();
             }
         }
+        if self.outside_premium.load(Ordering::SeqCst) {
+            let mut outside = members(false).remove(0);
+            outside.id = "uc".into();
+            remote_members.push(outside);
+            *remote_counts.entry("prolite".into()).or_default() += 1;
+        }
         Ok((remote_members, remote_counts))
     }
     async fn quota(&self, id: &str) -> Result<(QuotaEvidence, Option<i64>), QuotaReadError> {
+        if self.rejected_holder_credential.load(Ordering::SeqCst) {
+            return Err(QuotaReadError::from_fetch("API 返回错误 401 Unauthorized"));
+        }
         if self.temporary_quota_error.load(Ordering::SeqCst) {
             return Err(QuotaReadError::temporary("实时额度查询超时"));
         }
@@ -380,6 +442,57 @@ fn ready_state() -> State {
         validated_at: Some(1000),
         ..state()
     }
+}
+
+#[tokio::test]
+async fn rotation_changes_only_pool_members_when_workspace_has_other_premium_seats() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    mock.outside_premium.store(true, Ordering::SeqCst);
+    let mut state = state();
+    run(&mock, &mut state).await.unwrap();
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
+    assert_eq!(state.holder_account_id.as_deref(), Some("b"));
+    let op = state.operation.as_ref().unwrap();
+    assert_eq!((&*op.source_user_id, &*op.target_user_id), ("ua", "ub"));
+    assert_eq!(op.before_counts["prolite"], 2);
+    let (remote, counts) = mock.snapshot().await.unwrap();
+    assert_eq!(counts["prolite"], 2);
+    assert_eq!(
+        remote.iter().find(|m| m.id == "uc").unwrap().seat_type,
+        "prolite"
+    );
+}
+
+#[tokio::test]
+async fn a_second_pool_premium_seat_blocks_start_commit_and_publication() {
+    for read in [1, 2, 4] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        mock.outside_premium.store(true, Ordering::SeqCst);
+        mock.expand_pool_on_read.store(read, Ordering::SeqCst);
+        let mut state = state();
+        assert!(run(&mock, &mut state).await.is_err());
+        assert_eq!(mock.posts.load(Ordering::SeqCst), usize::from(read == 4));
+        assert!(!state.allows(Some("key"), "b", false, 1000));
+    }
+}
+
+#[tokio::test]
+async fn pending_recovery_rejects_a_second_premium_member_added_to_the_pool() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    mock.outside_premium.store(true, Ordering::SeqCst);
+    mock.lost_snapshot_once.store(true, Ordering::SeqCst);
+    let mut state = state();
+    assert!(run(&mock, &mut state).await.is_err());
+    assert!(state.pending());
+    mock.pool.lock().unwrap().push("c".into());
+    state.paused = false;
+    assert!(run(&mock, &mut state).await.is_err());
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
+    assert!(mock.probes.lock().unwrap().is_empty());
+    assert!(!state.allows(Some("key"), "b", false, 1000));
 }
 
 #[tokio::test]
@@ -470,12 +583,11 @@ async fn manual_next_cannot_bypass_team_eligibility() {
 async fn manual_next_rejects_disabled_paused_or_unverified_configuration() {
     let dir = tempfile::tempdir().unwrap();
     let mock = Mock::new(dir.path());
-    for condition in ["disabled", "paused", "expired", "unverified", "pause_file"] {
+    for condition in ["disabled", "paused", "unverified", "pause_file"] {
         let mut state = ready_state();
         match condition {
             "disabled" => state.config.as_mut().unwrap().enabled = false,
             "paused" => state.paused = true,
-            "expired" => state.validated_at = Some(1000 - VALIDATION_TTL_SECS - 1),
             "unverified" => state.phase = Phase::Idle,
             "pause_file" => std::fs::write(worker::pause_path(dir.path()), "paused").unwrap(),
             _ => unreachable!(),
@@ -489,6 +601,23 @@ async fn manual_next_rejects_disabled_paused_or_unverified_configuration() {
         );
         assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
     }
+}
+
+#[tokio::test]
+async fn manual_next_accepts_old_validation_but_rechecks_before_swapping() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    mock.source_available.store(true, Ordering::SeqCst);
+    mock.now.store(1000 + 30 * 24 * 60 * 60, Ordering::SeqCst);
+    let mut state = ready_state();
+    let config = state.config.clone().unwrap();
+    worker::switch_next(dir.path(), &config, &mut state, &mock)
+        .await
+        .unwrap();
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
+    assert!(mock.snapshot_reads.load(Ordering::SeqCst) >= 3);
+    assert_eq!(*mock.probes.lock().unwrap(), ["b"]);
+    assert!(state.allows(Some("key"), "b", false, mock.now()));
 }
 
 #[tokio::test]
@@ -857,17 +986,44 @@ async fn disabled_pending_configuration_can_reconcile_without_resuming() {
 }
 
 #[tokio::test]
-async fn published_holder_losing_team_eligibility_is_paused_without_another_swap() {
+async fn published_holder_removed_from_eligible_pool_is_paused_without_another_swap() {
     let dir = tempfile::tempdir().unwrap();
     let mock = Mock::new(dir.path());
     let mut state = state();
     run(&mock, &mut state).await.unwrap();
     assert!(state.allows(Some("key"), "b", false, mock.now()));
-    mock.team_identity.store(false, Ordering::SeqCst);
+    mock.pool.lock().unwrap().retain(|id| id != "b");
     assert!(run(&mock, &mut state).await.is_err());
     assert!(state.paused);
     assert!(!state.allows(Some("key"), "b", false, mock.now()));
     assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn changed_local_holder_identity_blocks_a_previously_verified_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    mock.source_available.store(true, Ordering::SeqCst);
+    let mut state = ready_state();
+    state.holder_user_id = Some("changed-user".into());
+    assert!(run(&mock, &mut state).await.is_err());
+    assert!(!state.allows(Some("key"), "a", false, mock.now()));
+    assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 0);
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn rejected_holder_credentials_still_revoke_an_existing_route_without_swapping() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    mock.rejected_holder_credential
+        .store(true, Ordering::SeqCst);
+    let mut state = ready_state();
+    assert!(run(&mock, &mut state).await.is_err());
+    assert!(state.paused);
+    assert!(!state.allows(Some("key"), "a", false, mock.now()));
+    assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 0);
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -1024,14 +1180,18 @@ async fn unexpected_capacity_change_blocks_probe_and_publication() {
 }
 
 #[tokio::test]
-async fn administrator_change_after_publication_revokes_route_without_another_swap() {
+async fn administrator_change_is_reconciled_before_a_subsequent_exhaustion_swap() {
     let dir = tempfile::tempdir().unwrap();
     let mock = Mock::new(dir.path());
     let mut state = state();
     run(&mock, &mut state).await.unwrap();
     mock.after.store(false, Ordering::SeqCst);
+    mock.now
+        .store(1000 + RAPID_EXHAUSTION_WINDOW_SECS + 1, Ordering::SeqCst);
+    let snapshots = mock.snapshot_reads.load(Ordering::SeqCst);
     assert!(run(&mock, &mut state).await.is_err());
     assert!(!state.allows(Some("key"), "b", false, 1000));
+    assert!(mock.snapshot_reads.load(Ordering::SeqCst) > snapshots);
     assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
 }
 
@@ -1082,13 +1242,13 @@ fn missing_corrupt_and_future_state_have_distinct_fail_closed_results() {
 }
 
 #[test]
-fn publication_expires_and_cannot_override_key_scope_or_pending_source_block() {
+fn publication_does_not_expire_and_cannot_override_key_scope_or_future_validation() {
     let mut state = state();
     state.phase = Phase::Ready;
     state.holder_account_id = Some("b".into());
     state.validated_at = Some(1000);
     assert!(state.allows(Some("key"), "b", false, 1180));
-    assert!(!state.allows(Some("key"), "b", false, 1181));
+    assert!(state.allows(Some("key"), "b", false, 1000 + 30 * 24 * 60 * 60));
     assert!(!state.allows(Some("key"), "b", false, 999));
     assert!(state.allows(Some("other"), "a", false, 1000));
     assert!(!state.allows(Some("key"), "unrelated", false, 1000));
@@ -1136,13 +1296,14 @@ async fn http_adapter_uses_observed_swap_wire_and_sanitizes_errors() {
             "/users",
             get(|| async {
                 Json(serde_json::json!({"items":[
-            {"id":"ua","seat_type":"prolite"},{"id":"ub","seat_type":"default"}],"total":2}))
+            {"id":"ua","seat_type":"prolite"},{"id":"ub","seat_type":"default"},
+            {"id":"outside","seat_type":"prolite"}],"total":3}))
             }),
         )
         .route(
             "/users/seat_type_counts",
             get(|| async {
-                Json(serde_json::json!({"seat_type_counts":{"prolite":1,"default":1,"unused":0}}))
+                Json(serde_json::json!({"seat_type_counts":{"prolite":2,"default":1,"unused":0}}))
             }),
         )
         .route(
@@ -1173,8 +1334,9 @@ async fn http_adapter_uses_observed_swap_wire_and_sanitizes_errors() {
         format!("http://{address}/users"),
     );
     let (remote, actual_counts) = api.snapshot().await.unwrap();
-    assert_eq!(remote.len(), 2);
-    assert_eq!(actual_counts, counts());
+    assert_eq!(remote.len(), 3);
+    assert_eq!(actual_counts["prolite"], 2);
+    assert_eq!(actual_counts["default"], 1);
     let op = Operation {
         workspace_id: config().workspace_id,
         id: uuid::Uuid::new_v4().to_string(),
@@ -1182,7 +1344,7 @@ async fn http_adapter_uses_observed_swap_wire_and_sanitizes_errors() {
         target_account_id: "b".into(),
         source_user_id: "ua".into(),
         target_user_id: "ub".into(),
-        before_counts: counts(),
+        before_counts: actual_counts,
         created_at: 1000,
         submitted_at: Some(1000),
         exhaustion_triggered: None,
@@ -1334,7 +1496,7 @@ async fn paused_reconciliation_preserves_the_original_authentication_error() {
 }
 
 #[tokio::test]
-async fn transient_quota_read_expires_then_recovers_without_a_swap() {
+async fn transient_quota_read_preserves_publication_without_revalidating_or_swapping() {
     let dir = tempfile::tempdir().unwrap();
     let mock = Mock::new(dir.path());
     mock.source_available.store(true, Ordering::SeqCst);
@@ -1346,15 +1508,16 @@ async fn transient_quota_read_expires_then_recovers_without_a_swap() {
         state = load(dir.path()).unwrap();
         assert!(!state.paused);
         assert_eq!(state.validated_at, Some(1000));
-        assert_eq!(state.next_check_at, Some(now + MONITOR_CHECK_SECS));
-        assert_eq!(state.allows(Some("key"), "a", false, now), now <= 1180);
+        assert_eq!(state.next_check_at, Some(now + MONITOR_RETRY_SECS));
+        assert!(state.allows(Some("key"), "a", false, now));
         assert!(state.exhausted_until.is_empty());
     }
     mock.temporary_quota_error.store(false, Ordering::SeqCst);
     mock.now.store(1241, Ordering::SeqCst);
     run(&mock, &mut state).await.unwrap();
     assert!(state.allows(Some("key"), "a", false, 1241));
-    assert_eq!(state.validated_at, Some(1241));
+    assert_eq!(state.validated_at, Some(1000));
+    assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 0);
     assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
     assert!(mock.probes.lock().unwrap().is_empty());
 }
@@ -1395,11 +1558,15 @@ async fn transient_quota_read_during_explicit_pause_never_resumes_rotations() {
     mock.temporary_quota_error.store(true, Ordering::SeqCst);
     run(&mock, &mut state).await.unwrap();
     mock.now.store(1181, Ordering::SeqCst);
-    assert!(!state.allows(Some("key"), "a", false, 1181));
+    assert!(state.allows(Some("key"), "a", false, 1181));
     mock.temporary_quota_error.store(false, Ordering::SeqCst);
     run(&mock, &mut state).await.unwrap();
     assert!(state.paused);
     assert!(state.allows(Some("key"), "a", false, 1181));
+    assert_eq!(
+        state.message.as_deref(),
+        Some("调换已暂停，当前高级成员已验证，正在监测实时订阅额度")
+    );
     assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
 }
 
@@ -1437,32 +1604,61 @@ async fn manual_next_does_not_queue_a_swap_after_a_temporary_quota_failure() {
 }
 
 #[tokio::test]
-async fn transient_monitor_read_expires_then_recovers_without_a_swap() {
+async fn healthy_holder_ignores_admin_outages_without_snapshot_or_probe() {
+    for paused in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        mock.source_available.store(true, Ordering::SeqCst);
+        mock.permission.store(false, Ordering::SeqCst);
+        *mock.snapshot_error.lock().unwrap() =
+            Some(http::AdminError::connection("成员查询连接失败"));
+        let mut state = ready_state();
+        state.paused = paused;
+        if paused {
+            std::fs::write(worker::pause_path(dir.path()), "paused").unwrap();
+        }
+        for now in [1060, 1181, 1000 + 30 * 24 * 60 * 60] {
+            mock.now.store(now, Ordering::SeqCst);
+            run(&mock, &mut state).await.unwrap();
+            state = load(dir.path()).unwrap();
+            assert_eq!(state.paused, paused);
+            assert_eq!(state.validated_at, Some(1000));
+            assert_eq!(state.next_check_at, Some(now + MONITOR_CHECK_SECS));
+            assert!(state.allows(Some("key"), "a", false, now));
+            assert!(!state.routing_unverified(Some("key"), false, now));
+        }
+        assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 0);
+        assert_eq!(mock.scope_checks.load(Ordering::SeqCst), 0);
+        assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+        assert!(mock.probes.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn healthy_legacy_holder_defers_unrelated_candidate_failure_until_switching() {
     let dir = tempfile::tempdir().unwrap();
     let mock = Mock::new(dir.path());
     mock.source_available.store(true, Ordering::SeqCst);
+    mock.candidate_error.store(true, Ordering::SeqCst);
     let mut state = ready_state();
-    for now in [1060, 1120, 1181] {
+    assert!(!state.config.as_ref().unwrap().use_api_key_pool);
+    for now in [1060, 1181, 1000 + 24 * 60 * 60] {
         mock.now.store(now, Ordering::SeqCst);
-        *mock.snapshot_error.lock().unwrap() =
-            Some(http::AdminError::connection("成员查询连接失败"));
         run(&mock, &mut state).await.unwrap();
-        state = load(dir.path()).unwrap();
-        assert!(!state.paused);
+        assert!(state.allows(Some("key"), "a", false, now));
         assert_eq!(state.validated_at, Some(1000));
-        assert_eq!(state.next_check_at, Some(now + MONITOR_CHECK_SECS));
-        assert_eq!(state.allows(Some("key"), "a", false, now), now <= 1180);
-        assert_eq!(
-            state.routing_unverified(Some("key"), false, now),
-            now > 1180
-        );
     }
-    mock.now.store(1241, Ordering::SeqCst);
-    run(&mock, &mut state).await.unwrap();
-    assert_eq!(state.validated_at, Some(1241));
-    assert!(state.allows(Some("key"), "a", false, 1241));
-    assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+    assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 0);
+    assert_eq!(mock.scope_checks.load(Ordering::SeqCst), 0);
     assert!(mock.probes.lock().unwrap().is_empty());
+
+    let config = state.config.clone().unwrap();
+    assert!(worker::switch_next(dir.path(), &config, &mut state, &mock)
+        .await
+        .is_err());
+    assert!(mock.snapshot_reads.load(Ordering::SeqCst) > 0);
+    assert!(mock.scope_checks.load(Ordering::SeqCst) > 0);
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -1507,22 +1703,25 @@ fn monitor_recovery_never_resumes_explicit_pauses_or_non_transport_failures() {
 }
 
 #[tokio::test]
-async fn transient_read_during_explicit_pause_does_not_resume_rotations() {
+async fn confirmed_exhaustion_requires_admin_validation_before_any_swap() {
     let dir = tempfile::tempdir().unwrap();
     let mock = Mock::new(dir.path());
-    mock.source_available.store(true, Ordering::SeqCst);
     let mut state = ready_state();
-    state.paused = true;
-    std::fs::write(worker::pause_path(dir.path()), "paused").unwrap();
     *mock.snapshot_error.lock().unwrap() =
         Some(http::AdminError::connection("席位数量查询连接失败"));
     run(&mock, &mut state).await.unwrap();
-    mock.now.store(1181, Ordering::SeqCst);
-    assert!(!state.allows(Some("key"), "a", false, 1181));
-    run(&mock, &mut state).await.unwrap();
-    assert!(state.paused);
-    assert!(state.allows(Some("key"), "a", false, 1181));
+    assert!(!state.paused);
+    assert!(!state.allows(Some("key"), "a", false, 1000));
+    assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 1);
     assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+    assert!(mock.probes.lock().unwrap().is_empty());
+
+    mock.now.store(1000 + MONITOR_RETRY_SECS, Ordering::SeqCst);
+    run(&mock, &mut state).await.unwrap();
+    assert!(state.allows(Some("key"), "b", false, mock.now()));
+    assert!(mock.snapshot_reads.load(Ordering::SeqCst) > 1);
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
+    assert_eq!(*mock.probes.lock().unwrap(), ["b"]);
 }
 
 #[tokio::test]
@@ -1599,7 +1798,169 @@ fn explicit_allowance_with_a_full_weekly_window_is_available_not_exhausted() {
 }
 
 #[tokio::test]
-async fn unknown_quota_revokes_route_but_keeps_monitoring_and_recovers_without_swap() {
+async fn paused_holder_preserves_unknown_quota_and_recovers_exhaustion_without_admin_queries() {
+    for unknown in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        mock.holder_quota_unknown.store(unknown, Ordering::SeqCst);
+        let mut state = ready_state();
+        state.paused = true;
+        std::fs::write(worker::pause_path(dir.path()), "paused").unwrap();
+        run(&mock, &mut state).await.unwrap();
+        state = load(dir.path()).unwrap();
+        assert!(state.paused);
+        assert!(worker::can_recheck_paused_holder(&state));
+        assert_eq!(state.routing_unverified(Some("key"), false, 1000), !unknown);
+        assert_eq!(state.validated_at, Some(1000));
+        assert_eq!(state.next_check_at, Some(1000 + MONITOR_RETRY_SECS));
+
+        if !unknown {
+            mock.holder_quota_unknown.store(true, Ordering::SeqCst);
+            run(&mock, &mut state).await.unwrap();
+            assert!(state.routing_unverified(Some("key"), false, 1000));
+        }
+        mock.holder_quota_unknown.store(false, Ordering::SeqCst);
+        mock.source_available.store(true, Ordering::SeqCst);
+        mock.now.store(1000 + MONITOR_RETRY_SECS, Ordering::SeqCst);
+        run(&mock, &mut state).await.unwrap();
+        assert!(state.paused);
+        assert!(worker::pause_path(dir.path()).exists());
+        assert!(state.allows(Some("key"), "a", false, mock.now()));
+        assert_eq!(state.validated_at, Some(1000));
+        assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+        assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 0);
+        assert!(mock.probes.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn legacy_paused_quota_failure_recovers_without_enabling_rotation() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    mock.source_available.store(true, Ordering::SeqCst);
+    let mut state = ready_state();
+    state.attention("调换已暂停，当前成员未确认额度可用");
+    save(dir.path(), &state).unwrap();
+    std::fs::write(worker::pause_path(dir.path()), "paused").unwrap();
+    assert!(worker::can_recheck_paused_holder(&state));
+    run(&mock, &mut state).await.unwrap();
+    assert!(state.paused);
+    assert!(state.allows(Some("key"), "a", false, mock.now()));
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn admin_refresh_permission_never_retries_rejected_or_unresolved_paused_operations() {
+    let mut state = ready_state();
+    state.paused = true;
+    assert!(worker::can_refresh_admin(&state));
+    for message in ["查询成员认证失败（HTTP 401）", "席位冲突", "额度耗尽保护"]
+    {
+        state.attention(message);
+        assert!(!worker::can_refresh_admin(&state));
+        assert!(!worker::can_recheck_paused_holder(&state));
+    }
+    state = ready_state();
+    state.paused = true;
+    state.holder_user_id = None;
+    assert!(!worker::can_refresh_admin(&state));
+
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    mock.target_available.store(false, Ordering::SeqCst);
+    state = self::state();
+    run(&mock, &mut state).await.unwrap();
+    assert!(state.pending());
+    state.paused = true;
+    assert!(!worker::can_refresh_admin(&state));
+    assert!(!worker::can_recheck_paused_holder(&state));
+}
+
+#[tokio::test]
+async fn initial_validation_retries_its_final_read_but_still_stops_on_rejection() {
+    for retryable in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        mock.source_available.store(true, Ordering::SeqCst);
+        mock.snapshot_error_on_read.store(2, Ordering::SeqCst);
+        *mock.snapshot_error.lock().unwrap() = Some(if retryable {
+            http::AdminError::connection("成员查询连接失败")
+        } else {
+            "查询成员被拒绝（HTTP 403）".into()
+        });
+        let mut state = state();
+        save(dir.path(), &state).unwrap();
+        assert_eq!(run(&mock, &mut state).await.is_ok(), retryable);
+        state = load(dir.path()).unwrap();
+        assert!(!state.allows(Some("key"), "a", false, mock.now()));
+        assert_eq!(state.paused, !retryable);
+        assert_eq!(*mock.probes.lock().unwrap(), ["a"]);
+        assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+        if retryable {
+            assert_eq!(state.next_check_at, Some(1000 + MONITOR_RETRY_SECS));
+            mock.now.store(1000 + MONITOR_RETRY_SECS, Ordering::SeqCst);
+            run(&mock, &mut state).await.unwrap();
+            assert!(state.allows(Some("key"), "a", false, mock.now()));
+            assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+        }
+    }
+}
+
+#[tokio::test]
+async fn administrator_body_disconnect_retries_but_complete_invalid_json_stops() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    for counts in [false, true] {
+        for truncated in [true, false] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                loop {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = vec![0; 4096];
+                    let n = socket.read(&mut request).await.unwrap();
+                    let target = !counts
+                        || String::from_utf8_lossy(&request[..n]).contains("/seat_type_counts");
+                    let body = if target {
+                        "private-admin-body"
+                    } else {
+                        r#"{"items":[{"id":"ua","seat_type":"prolite"}],"total":1}"#
+                    };
+                    let length = if target && truncated {
+                        body.len() + 100
+                    } else {
+                        body.len()
+                    };
+                    let response = format!("HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n{body}");
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                    socket.shutdown().await.unwrap();
+                    if target {
+                        break;
+                    }
+                }
+            });
+            let api = http::AdminApi::mock(
+                reqwest::Client::builder()
+                    .no_proxy()
+                    .retry(reqwest::retry::never())
+                    .build()
+                    .unwrap(),
+                format!("http://{address}/users"),
+            );
+            let error = api.snapshot().await.unwrap_err();
+            assert_eq!(error.retryable(), truncated);
+            assert!(error.to_string().contains(if truncated {
+                "读取失败"
+            } else {
+                "格式不兼容"
+            }));
+            assert!(!error.to_string().contains("private-admin-body"));
+            server.await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn unknown_quota_preserves_verified_route_without_snapshot_probe_or_swap() {
     let dir = tempfile::tempdir().unwrap();
     let mock = Mock::new(dir.path());
     mock.source_available.store(true, Ordering::SeqCst);
@@ -1608,14 +1969,31 @@ async fn unknown_quota_revokes_route_but_keeps_monitoring_and_recovers_without_s
     run(&mock, &mut state).await.unwrap();
     state = load(dir.path()).unwrap();
     assert!(!state.paused);
-    assert!(state.routing_unverified(Some("key"), false, 1000));
-    assert_eq!(state.next_check_at, Some(1000 + MONITOR_CHECK_SECS));
+    assert!(!state.routing_unverified(Some("key"), false, 1000));
+    assert_eq!(state.validated_at, Some(1000));
+    assert_eq!(state.next_check_at, Some(1000 + MONITOR_RETRY_SECS));
     mock.holder_quota_unknown.store(false, Ordering::SeqCst);
     mock.now.store(1060, Ordering::SeqCst);
     run(&mock, &mut state).await.unwrap();
     assert!(state.allows(Some("key"), "a", false, 1060));
-    assert_eq!(*mock.probes.lock().unwrap(), ["a"]);
+    assert_eq!(state.validated_at, Some(1000));
+    assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 0);
+    assert!(mock.probes.lock().unwrap().is_empty());
     assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn unknown_quota_cannot_publish_an_unverified_initial_holder() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    mock.holder_quota_unknown.store(true, Ordering::SeqCst);
+    let mut state = state();
+    run(&mock, &mut state).await.unwrap();
+    assert!(state.routing_unverified(Some("key"), false, mock.now()));
+    assert_eq!(state.validated_at, None);
+    assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 1);
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+    assert!(mock.probes.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

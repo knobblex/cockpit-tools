@@ -66,8 +66,7 @@ function harness(initialAccounts = [account('admin'), account('member')], initia
   const button = (label: string) => tree().find((node) => node.type === 'button' && text(node) === label)!;
   const dropdown = (label: string) => tree().find((node) => node.type === 'Dropdown' && node.props.ariaLabel === label)!;
   const toggle = () => tree().find((node) => node.props?.role === 'switch')!;
-  const consent = () => tree().find((node) => node.type === 'input' && node.props.type === 'checkbox' && !node.props.role)!;
-  return { hook, tree, button, dropdown, toggle, consent, calls, visible: () => text(hook.flush()),
+  return { hook, tree, button, dropdown, toggle, calls, visible: () => text(hook.flush()),
     setAccounts(next: CodexAccount[]) { accounts = next; }, setCollection(next: CodexLocalAccessCollection) { currentCollection = next; },
     setRemote(next: PremiumSeatState) { remote = next; }, failLoad() { loadFailure = true; },
     async poll() { await poll?.(); await settlePromises(); },
@@ -87,7 +86,7 @@ test('personal and unknown accounts have no new entry, while saved-state loading
   }
 });
 
-test('teams remain disabled by default and require explicit selection and consent to enable', async () => {
+test('teams remain disabled by default and save after explicit selection with an informational notice', async () => {
   const h = harness(); await settlePromises();
   assert.equal(h.toggle().props.checked, false);
   assert.equal(h.toggle().props.disabled, true);
@@ -98,10 +97,9 @@ test('teams remain disabled by default and require explicit selection and consen
   assert.equal(h.toggle().props.disabled, false);
   assert.equal(h.toggle().props.checked, false);
   h.toggle().props.onChange({ target: { checked: true } });
-  assert.equal(h.button('保存配置').props.disabled, true);
-  h.button('保存配置').props.onClick();
-  assert.equal(h.calls.configured.length, 0);
-  h.consent().props.onChange({ target: { checked: true } });
+  assert.match(h.visible(), /变更会影响来源和目标成员在工作区及其他客户端的权益/);
+  assert.match(h.visible(), /初次启用和每次调换会消耗少量额度执行定向探测/);
+  assert.equal(h.tree().some((node) => node.type === 'input' && node.props.type === 'checkbox' && !node.props.role), false);
   assert.equal(h.button('保存配置').props.disabled, false);
   h.button('保存配置').props.onClick(); await settlePromises();
   assert.equal(h.calls.configured.length, 1);
@@ -139,7 +137,7 @@ test('team metadata only offers configuration and does not promise remote manage
   }
 });
 
-test('removing the last team retains old settings and allows pause and disabling without consent', async () => {
+test('removing the last team retains old settings and allows pause and disabling', async () => {
   const h = harness(undefined, state({ config: config({ enabled: true }), phase: 'ready' }));
   await settlePromises();
   h.setAccounts([]);
@@ -208,17 +206,14 @@ test('paused members and disabled keys block new attempts but never prevent swit
   }
 });
 
-test('changing workspace or model invalidates prior enable consent', async () => {
+test('model changes remain saveable while an ineligible workspace blocks checking and saving', async () => {
   const h = harness(undefined, state({ config: config({ enabled: true }) })); await settlePromises();
-  h.consent().props.onChange({ target: { checked: true } });
   assert.equal(h.button('保存配置').props.disabled, false);
   h.tree().find((node) => node.type === 'input' && node.props.placeholder === '自动发现，无需填写').props.onChange({ target: { value: 'new-model' } });
-  assert.equal(h.consent().props.checked, false);
-  assert.equal(h.button('保存配置').props.disabled, true);
-  h.consent().props.onChange({ target: { checked: true } });
+  assert.equal(h.button('保存配置').props.disabled, false);
   h.tree().find((node) => node.type === 'input' && node.props.placeholder === '选择管理员后自动填入').props.onChange({ target: { value: 'different-workspace' } });
-  assert.equal(h.consent().props.checked, false);
   assert.equal(h.button('只读核对').props.disabled, true);
+  assert.equal(h.button('保存配置').props.disabled, true);
   h.hook.unmount();
 });
 

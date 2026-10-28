@@ -25,7 +25,6 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [consent, setConsent] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const formId = useId();
   const pending = useRef(false);
@@ -71,21 +70,21 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
   const unresolved = Boolean(state?.operation && !state.operation.verifiedAt && !state.operation.resolvedWithoutSwap);
   const edit = (next: Partial<PremiumSeatConfig>) => {
     if (pending.current || !loaded || unresolved) return;
-    dirty.current = true; setDraft((old) => ({ ...old, ...next })); setConsent(false); setNotice("");
+    dirty.current = true; setDraft((old) => ({ ...old, ...next })); setNotice("");
   };
   const run = async (work: () => Promise<PremiumSeatState>, saved = false) => {
     if (pending.current) return;
     pending.current = true; setBusy(true); setError(""); setNotice("");
     try {
       const next = await work();
-      if (saved) { dirty.current = false; setDraft(poolDraft(next.config)); setConsent(false); }
+      if (saved) { dirty.current = false; setDraft(poolDraft(next.config)); }
       setState(next); setNotice(next.message ?? "配置已保存，后台稍后检查。");
     } catch (e) { setError(String(e)); }
     finally { pending.current = false; setBusy(false); }
   };
   const formDisabled = busy || !loaded || unresolved;
   const checkDisabled = formDisabled || !native || Boolean(draftEligibilityReason);
-  const saveDisabled = formDisabled || (draft.enabled && (!native || !consent || Boolean(draftEligibilityReason)));
+  const saveDisabled = formDisabled || (draft.enabled && (!native || Boolean(draftEligibilityReason)));
   const enableDisabled = formDisabled || (!draft.enabled && (!native || Boolean(draftEligibilityReason)));
   const enabled = Boolean(state?.config?.enabled);
   const statusTone = state?.phase === "needs_attention" ? "error" : enabled && !state?.paused ? "success" : "muted";
@@ -116,11 +115,11 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
       </button>
       </div>
     </div>
-    <p className="premium-seat-description">仅团队工作区可手动启用。额度耗尽后，按账号池顺序检查下一位成员；调换并验证通过后接入路由。</p>
+    <p className="premium-seat-description">仅团队工作区可手动启用。当前成员有额度时持续使用；耗尽后核对席位并按账号池顺序切换，验证通过后接入路由。</p>
     <dl className="premium-seat-overview">
       <div><dt><Users size={13} />当前高级成员</dt><dd>{display(state?.holderAccountId)}</dd></div>
       <div><dt><ShieldCheck size={13} />关联账号池</dt><dd>{savedKey?.label ?? "尚未配置"}</dd></div>
-      <div><dt><Clock3 size={13} />下次检查</dt><dd>{state?.nextCheckAt ? new Date(state.nextCheckAt * 1000).toLocaleString() : "—"}</dd></div>
+      <div><dt><Clock3 size={13} />{state?.validatedAt && !unresolved ? "下次额度检查" : "下次核对"}</dt><dd>{state?.nextCheckAt ? new Date(state.nextCheckAt * 1000).toLocaleString() : "—"}</dd></div>
     </dl>
     {!native && <div className="premium-seat-callout" role="status"><CircleAlert size={14} /><span>启用原生 Rust API 网关后，可核对并启用自动调换。</span></div>}
     {state?.config && savedEligibilityReason && <div className="premium-seat-callout" role="status"><CircleAlert size={14} /><span>{savedEligibilityReason}已有配置和操作记录仍保留，可暂停或核对；未决操作结束后可关闭。</span></div>}
@@ -151,7 +150,7 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
           </div>
           <div className="premium-seat-pool">
             <div className="premium-seat-section-heading"><h3><Users size={14} />候选账号池</h3><span className="codex-api-service-pill muted">{candidates.length} 位成员</span></div>
-            <p className="premium-seat-hint">跟随账号池顺序，从当前持席成员的下一位开始，最多检查一轮。</p>
+            <p className="premium-seat-hint">账号池内须恰好有一个高级席位，只调换池内成员；工作区可有其他高级席位。跟随池内顺序，从当前持席成员的下一位开始，最多检查一轮。</p>
             {candidates.length > 0 ? <ol className="premium-seat-members">{candidates.map((account, index) => <li key={account.id}>
               <span className="premium-seat-member-index">{index + 1}</span><span className="premium-seat-member-email" title={account.email}>{account.email}</span>
               {state?.holderAccountId === account.id && <span className="codex-api-service-pill success">当前持席</span>}
@@ -165,8 +164,7 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
             onChange={(e) => { if (!enableDisabled) edit({ enabled: e.target.checked }); }} />
         </label>
         {draftEligibilityReason && <p className="premium-seat-hint" role="status">{draftEligibilityReason}</p>}
-        {draft.enabled && <label className="premium-seat-consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-          <span>我允许在此 Key 当前及后续加入的同工作区成员中自动调换现有高级席位。变更影响整个工作区及其他客户端；初次启用和每次调换会消耗少量额度执行定向探测。</span></label>}
+        {draft.enabled && <p className="premium-seat-hint">启用后，将在此 Key 当前及后续加入的同工作区池内成员中自动调换现有高级席位。变更会影响来源和目标成员在工作区及其他客户端的权益；初次启用和每次调换会消耗少量额度执行定向探测。</p>}
         <div className="premium-seat-form-footer"><span className="premium-seat-hint">只读核对不会变更席位。</span><div className="premium-seat-actions">
           <button type="button" className="btn btn-secondary btn-sm" disabled={checkDisabled} onClick={() => { if (!checkDisabled) void run(() => checkPremiumSeat(draft)); }}><ShieldCheck size={14} />只读核对</button>
           <button type="button" className="btn btn-primary btn-sm" disabled={saveDisabled} onClick={() => { if (!saveDisabled) void run(() => configurePremiumSeat(draft), true); }}><Save size={14} />保存配置</button>

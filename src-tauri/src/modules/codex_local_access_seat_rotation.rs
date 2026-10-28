@@ -140,6 +140,27 @@ fn seat_candidate_ids(
     Ok(candidates)
 }
 
+fn seat_check_holder_scope(
+    config: &seat::Config,
+    collection: &CodexLocalAccessCollection,
+    id: &str,
+) -> Result<(), String> {
+    if !config.use_api_key_pool && !config.member_account_ids.iter().any(|member| member == id) {
+        return Err("当前高级成员已离开配置的授权账号池".into());
+    }
+    let account = seat_team_member_account(config, id)?;
+    if !native_eligible(&account) {
+        return Err("当前高级成员授权无法用于原生模型请求".into());
+    }
+    // A dormant candidate's missing credentials or model access must not stop
+    // the current holder. Reuse all pool/model/identity checks for this member
+    // only; the complete candidate set is checked when a switch is prepared.
+    let mut holder_scope = config.clone();
+    holder_scope.use_api_key_pool = false;
+    holder_scope.member_account_ids = vec![id.to_string()];
+    seat_candidate_ids(&holder_scope, collection).map(|_| ())
+}
+
 fn seat_member_account(config: &seat::Config, id: &str) -> Result<CodexAccount, String> {
     let account = codex_account::load_account(id).ok_or("席位成员的本地账号已不存在")?;
     if account.is_api_key_auth()
@@ -200,11 +221,17 @@ async fn seat_confirm_team_profile(original: CodexAccount) -> Result<CodexAccoun
     Ok(refreshed)
 }
 
-async fn seat_admin_api(config: &seat::Config) -> Result<seat::http::AdminApi, String> {
-    let admin = codex_account::prepare_account_for_quota_query(&config.admin_account_id)
+async fn seat_admin_api(config: &seat::Config) -> Result<seat::http::AdminApi, seat::http::AdminError> {
+    let admin = timeout(
+        Duration::from_secs(30),
+        codex_account::prepare_account_for_quota_query(&config.admin_account_id),
+    )
+    .await
+    .map_err(|_| seat::http::AdminError::connection("管理员授权准备超时"))?
+    .map_err(|_| "无法准备管理员授权，请重新登录")?;
+    seat_admin_api_for_account(config, &admin)
         .await
-        .map_err(|_| "无法准备管理员授权，请重新登录")?;
-    seat_admin_api_for_account(config, &admin).await
+        .map_err(Into::into)
 }
 
 async fn seat_admin_api_for_account(
@@ -265,6 +292,7 @@ async fn seat_read_snapshot(config: &seat::Config) -> Result<seat::http::Snapsho
 
 fn seat_local_holder(
     config: &seat::Config,
+    collection: &CodexLocalAccessCollection,
     members: &[seat::Member],
     ids: &[String],
 ) -> Result<String, String> {
@@ -279,13 +307,18 @@ fn seat_local_holder(
     }) {
         return Err("管理员身份未匹配工作区的有效 Owner/Admin 成员".into());
     }
-    let premium = members
+    let key = collection
+        .api_keys
         .iter()
-        .filter(|m| m.seat_type == "prolite")
+        .find(|key| key.id == config.api_key_id && key.enabled)
+        .ok_or("选中的 API Key 不存在或已禁用")?;
+    let pool_user_ids = native_scoped_account_ids(collection, Some(key))
+        .iter()
+        .filter_map(|id| codex_account::load_account(id))
+        .filter(|account| account.account_id.as_deref() == Some(config.workspace_id.as_str()))
+        .filter_map(|account| account.user_id)
         .collect::<Vec<_>>();
-    if premium.len() != 1 || !premium[0].eligible() {
-        return Err("高级席位分配不满足自动调换条件".into());
-    }
+    let premium = seat::pool_premium_holder(members, &pool_user_ids)?;
     let mut holder = None;
     for id in ids {
         let account = seat_team_member_account(config, id)?;
@@ -298,7 +331,7 @@ fn seat_local_holder(
             }
             return Err("本地成员 ID 与工作区成员列表不匹配".into());
         };
-        if member.id == premium[0].id && member.eligible() {
+        if member.id == premium.id && member.eligible() {
             holder = Some(id.clone());
         }
     }
@@ -315,8 +348,16 @@ async fn seat_fresh_quota(
         codex_account::prepare_account_for_quota_query(id),
     )
     .await
-    .map_err(|_| "成员授权准备超时")?
-    .map_err(|_| "成员授权不可用，请重新登录")?;
+    .map_err(|_| seat::QuotaReadError::temporary("成员授权准备超时"))?
+    .map_err(|error| {
+        let current = codex_account::load_account(id);
+        seat_quota_preparation_error(
+            &original,
+            current.as_ref(),
+            &error,
+            &crate::modules::config::get_user_config().language,
+        )
+    })?;
     if account.account_id != original.account_id || account.user_id != original.user_id {
         return Err("成员身份在刷新授权时发生变化".into());
     }
@@ -357,19 +398,16 @@ async fn seat_fresh_quota(
     {
         return Err("成员令牌与工作区身份不一致".into());
     }
-    if result
-        .plan_type
-        .as_deref()
-        .is_none_or(|p| p.trim().is_empty() || p == "free")
-    {
-        return Err("实时套餐未确认工作区权益".into());
+    let evidence = seat_live_quota_evidence(
+        result.plan_type.as_deref(),
+        result.quota.raw_data.as_ref(),
+        seat_now(),
+    )?;
+    if evidence.0 == seat::QuotaEvidence::Unknown {
+        // An incomplete read must not erase the last known plan/window and
+        // indirectly invalidate a holder that is still serving requests.
+        return Ok(evidence);
     }
-    let raw = result
-        .quota
-        .raw_data
-        .as_ref()
-        .ok_or("实时额度缺少原始窗口")?;
-    let evidence = seat::quota_evidence(raw, seat_now());
     let current =
         codex_account::save_refreshed_quota(&account, result.quota, result.plan_type, started)
             .map_err(|_| "额度查询期间成员授权发生变化，请重试")?;
@@ -377,6 +415,62 @@ async fn seat_fresh_quota(
     // identify a personal workspace. Never publish from the older local hint.
     seat_require_team_identity(&current)?;
     Ok(evidence)
+}
+
+fn seat_live_quota_evidence(
+    plan: Option<&str>,
+    raw: Option<&Value>,
+    now: i64,
+) -> Result<(seat::QuotaEvidence, Option<i64>), seat::QuotaReadError> {
+    match plan.map(str::trim).filter(|plan| !plan.is_empty()) {
+        Some(plan) if plan.eq_ignore_ascii_case("free") => {
+            Err("实时套餐已不具备工作区权益".into())
+        }
+        Some(_) => Ok(raw.map_or((seat::QuotaEvidence::Unknown, None), |raw| {
+            seat::quota_evidence(raw, now)
+        })),
+        None => Ok((seat::QuotaEvidence::Unknown, None)),
+    }
+}
+
+fn seat_quota_preparation_error(
+    original: &CodexAccount,
+    current: Option<&CodexAccount>,
+    error: &str,
+    language: &str,
+) -> seat::QuotaReadError {
+    let eligible = current.is_some_and(|current| {
+        current.account_id == original.account_id
+            && current.user_id == original.user_id
+            && !current.is_api_key_auth()
+            && !current.is_agent_identity_auth()
+            && seat_require_team_identity(current).is_ok()
+            && native_eligible(current)
+    });
+    // Token Authority wraps its local OAuth diagnostic in the selected locale.
+    // Unwrap that exact template rather than searching arbitrary error bodies.
+    let template = crate::modules::i18n::translate(
+        language,
+        "codex.authError.refreshFailed",
+        &[("error", "\0")],
+    );
+    let diagnostic = template
+        .split_once('\0')
+        .and_then(|(prefix, suffix)| error.strip_prefix(prefix)?.strip_suffix(suffix))
+        .unwrap_or(error);
+    let temporary = diagnostic.starts_with("Token 刷新请求失败: ")
+        || diagnostic.starts_with("读取响应失败: ")
+        || diagnostic.starts_with("采集 Codex 额度运行态失败: ")
+        || diagnostic
+            .strip_prefix("Token 刷新失败: status=")
+            .and_then(|tail| tail.split(|ch: char| !ch.is_ascii_digit()).next())
+            .and_then(|status| status.parse::<u16>().ok())
+            .is_some_and(|status| matches!(status, 408 | 429 | 500..=599));
+    if eligible && temporary {
+        seat::QuotaReadError::temporary("成员授权准备暂时失败，稍后重试")
+    } else {
+        "成员授权不可用或身份已变化，请重新核对".into()
+    }
 }
 
 async fn seat_refresh_member_access(
@@ -528,7 +622,7 @@ pub async fn check_premium_seat_rotation(config: seat::Config) -> Result<seat::S
     if remote_eligible < 2 {
         return Err("账号池内至少需要两个远端席位状态正常的同工作区成员".into());
     }
-    let holder = seat_local_holder(&config, &members, &ids)?;
+    let holder = seat_local_holder(&config, &collection, &members, &ids)?;
     let mut state = get_premium_seat_rotation()?;
     state.holder_account_id = Some(holder);
     state.message =
@@ -582,7 +676,7 @@ pub async fn control_premium_seat_rotation(action: &str) -> Result<seat::State, 
         seat_collection(&config).await?;
         let backend = PremiumSeatBackend {
             config: &config,
-            api: tokio::sync::Mutex::new(seat_admin_api(&config).await?),
+            api: tokio::sync::Mutex::new(None),
             refresh_admin: true,
         };
         let result = seat::worker::switch_next(&dir, &config, &mut state, &backend).await;
@@ -732,7 +826,7 @@ async fn premium_seat_tick() {
     }
     if state.paused
         && !state.pending()
-        && state.phase != seat::Phase::Ready
+        && !seat::worker::can_recheck_paused_holder(&state)
         && !seat::worker::can_retry_monitor_read(&dir, &state)
     {
         return;
@@ -776,7 +870,7 @@ async fn premium_seat_tick() {
 
 struct PremiumSeatBackend<'a> {
     config: &'a seat::Config,
-    api: tokio::sync::Mutex<seat::http::AdminApi>,
+    api: tokio::sync::Mutex<Option<seat::http::AdminApi>>,
     refresh_admin: bool,
 }
 
@@ -792,7 +886,7 @@ impl seat::worker::Backend for PremiumSeatBackend<'_> {
     async fn holder(&self, members: &[seat::Member]) -> Result<String, String> {
         let collection = seat_collection(self.config).await?;
         let ids = seat_candidate_ids(self.config, &collection)?;
-        seat_local_holder(self.config, members, &ids)
+        seat_local_holder(self.config, &collection, members, &ids)
     }
     async fn candidates(&self) -> Result<Vec<String>, String> {
         let collection = seat_collection(self.config).await?;
@@ -803,13 +897,23 @@ impl seat::worker::Backend for PremiumSeatBackend<'_> {
         let collection = seat_collection(self.config).await?;
         seat_candidate_ids(self.config, &collection).map(|_| ())
     }
+    async fn check_holder_scope(&self, id: &str) -> Result<(), String> {
+        let collection = seat_collection(self.config).await?;
+        seat_check_holder_scope(self.config, &collection, id)
+    }
     async fn snapshot(&self) -> Result<seat::http::Snapshot, seat::http::AdminError> {
-        let mut api = self.api.lock().await;
+        let mut guard = self.api.lock().await;
+        if guard.is_none() {
+            // Prepare inside the typed read path so temporary preparation
+            // failures receive the same retry policy as member queries.
+            *guard = Some(seat_admin_api(self.config).await?);
+        }
+        let api = guard.as_mut().ok_or("管理员网络连接缺失")?;
         if self.refresh_admin {
-            seat_admin_snapshot(self.config, &mut api).await
+            seat_admin_snapshot(self.config, api).await
         } else {
-            // Paused reconciliation must not rotate a rejected credential on
-            // every monitor tick. Explicit resume authorizes one new attempt.
+            // Failed authorization and pending operations do not refresh again
+            // on every paused tick. Explicit resume permits another attempt.
             api.snapshot().await
         }
     }
@@ -827,7 +931,13 @@ impl seat::worker::Backend for PremiumSeatBackend<'_> {
         seat_team_member_account(self.config, &self.config.admin_account_id)?;
         seat_team_member_account(self.config, &op.source_account_id)?;
         seat_team_member_account(self.config, &op.target_account_id)?;
-        self.api.lock().await.swap(op).await
+        self.api
+            .lock()
+            .await
+            .as_ref()
+            .ok_or("管理员网络连接缺失")?
+            .swap(op)
+            .await
     }
 }
 
@@ -853,8 +963,9 @@ async fn premium_seat_step(
     seat_recover_pending_members(config, state).await?;
     let backend = PremiumSeatBackend {
         config,
-        api: tokio::sync::Mutex::new(seat_admin_api(config).await?),
-        refresh_admin: !state.paused,
+        api: tokio::sync::Mutex::new(None),
+        refresh_admin: seat::worker::can_refresh_admin(state)
+            || seat::worker::can_retry_monitor_read(dir, state),
     };
     seat::worker::step(dir, config, state, &backend).await
 }
@@ -884,9 +995,6 @@ fn seat_validate_prepared_route(
             && (account.is_api_key_auth()
                 || account.is_agent_identity_auth()
                 || seat_require_team_identity(account).is_err()
-                || state.config.as_ref().is_some_and(|config| {
-                    seat_team_member_account(config, &config.admin_account_id).is_err()
-                })
                 || !native_eligible(account)
                 || state.holder_user_id != account.user_id
                 || state.config.as_ref().map(|c| c.workspace_id.as_str())
@@ -898,8 +1006,14 @@ fn seat_validate_prepared_route(
             "Seat holder or authorization changed during route preparation",
         ));
     }
+    // The administrator is needed to verify or change seats, not to use an
+    // already verified holder. Its credentials must not gate normal requests.
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "codex_local_access_seat_route_tests.rs"]
+mod seat_route_tests;
 
 fn seat_routing_state() -> Result<(PathBuf, seat::State), native_contract::ServiceError> {
     let dir = seat_dir().map_err(|_| {

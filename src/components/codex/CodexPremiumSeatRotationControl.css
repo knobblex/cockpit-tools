@@ -64,8 +64,6 @@
 .premium-seat-toggle:checked::before { transform: translateX(14px); background: #fff; }
 .premium-seat-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .premium-seat-toggle:disabled { opacity: .5; cursor: not-allowed; }
-.premium-seat-consent { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid var(--codex-api-border); border-radius: 10px; background: var(--codex-api-studio-card-soft); color: var(--text-secondary); font-size: 11px; line-height: 1.6; cursor: pointer; }
-.premium-seat-consent input { flex-shrink: 0; margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--primary); }
 .premium-seat-actions { flex-wrap: wrap; }
 .premium-seat-runtime-actions { margin-top: 12px; }
 .premium-seat-callout { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; padding: 9px 11px; border: 1px solid var(--codex-api-border-soft, var(--border)); border-radius: 9px; background: var(--codex-api-studio-card-soft, var(--bg-secondary)); color: var(--text-secondary); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }

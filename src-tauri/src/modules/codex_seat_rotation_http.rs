@@ -128,7 +128,11 @@ impl AdminApi {
                 .await
                 .map_err(|_| AdminError::connection("成员查询连接失败"))?;
             check_status(response.status(), "查询成员")?;
-            let page: Page = response.json().await.map_err(|_| "成员响应格式不兼容")?;
+            let body = response
+                .bytes()
+                .await
+                .map_err(|_| AdminError::connection("成员响应读取失败"))?;
+            let page: Page = serde_json::from_slice(&body).map_err(|_| "成员响应格式不兼容")?;
             if page.total > 5000
                 || total.is_some_and(|n| n != page.total)
                 || (page.items.is_empty() && members.len() < page.total)
@@ -157,13 +161,11 @@ impl AdminApi {
             .await
             .map_err(|_| AdminError::connection("席位数量查询连接失败"))?;
         check_status(response.status(), "查询席位数量")?;
-        let counts: Counts = response
-            .json()
+        let body = response
+            .bytes()
             .await
-            .map_err(|_| "席位数量响应格式不兼容")?;
-        if counts.seat_type_counts.get("prolite") != Some(&1) {
-            return Err("初版要求工作区恰好有一个高级席位".into());
-        }
+            .map_err(|_| AdminError::connection("席位数量响应读取失败"))?;
+        let counts: Counts = serde_json::from_slice(&body).map_err(|_| "席位数量响应格式不兼容")?;
         let mut actual = BTreeMap::new();
         for member in &members {
             *actual.entry(member.seat_type.clone()).or_insert(0u64) += 1;
