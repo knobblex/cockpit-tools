@@ -64,6 +64,7 @@ jobs:
     uses: ./.github/workflows/build-matrix.yml
     with:
       source_ref: ${{ needs.prepare.outputs.candidate_sha }}
+      fork_release: true
     # Deliberately do not inherit signing secrets or call the release workflow.
 
   promote:
@@ -92,3 +93,15 @@ jobs:
           UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
         run: node scripts/release/upstream_sync.cjs promote
+
+  publish-fork:
+    needs: [prepare, build, promote]
+    if: needs.promote.result == 'success'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/fork-publish.yml
+    with:
+      source_ref: ${{ needs.prepare.outputs.candidate_sha }}
+      prebuilt: true
+    secrets:
+      FORK_UPDATER_PRIVATE_KEY: ${{ secrets.FORK_UPDATER_PRIVATE_KEY }}
