@@ -2,6 +2,12 @@ name: 🚀 Build Matrix
 
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Immutable candidate commit supplied by the upstream sync controller.
+        required: true
+        type: string
   pull_request:
     branches:
       - "main"
@@ -13,7 +19,7 @@ on:
       - "feature/build-matrix/**"
 
 concurrency:
-  group: build-matrix-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: build-matrix-${{ github.workflow }}-${{ inputs.source_ref || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,6 +31,9 @@ jobs:
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
 
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
@@ -49,6 +58,9 @@ jobs:
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
 
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
@@ -73,6 +85,9 @@ jobs:
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
 
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
@@ -85,6 +100,14 @@ jobs:
         with:
           go-version-file: sidecars/cockpit-cliproxy/go.mod
           cache-dependency-path: sidecars/cockpit-cliproxy/go.sum
+
+      - name: 🦀 Rust setup for local customizations
+        if: inputs.source_ref != '' || hashFiles('tests/codex-seat-rotation/Cargo.toml') != ''
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 🧪 Test local seat rotation customizations
+        if: inputs.source_ref != '' || hashFiles('tests/codex-seat-rotation/Cargo.toml') != ''
+        run: cargo test --manifest-path tests/codex-seat-rotation/Cargo.toml --locked
 
       - name: 📦 Install frontend dependencies
         run: npm ci
@@ -106,6 +129,9 @@ jobs:
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
 
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
@@ -163,6 +189,9 @@ jobs:
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
 
       - name: 🐧 Install system dependencies (Linux)
         if: startsWith(matrix.platform, 'ubuntu')

@@ -102,6 +102,48 @@ test("trusted main CI and release jobs share caches, with correct platform separ
   assert.doesNotMatch(workflow, /Library\/Caches\/tauri|uses: swatinem\/rust-cache/);
 });
 
+test("upstream sync runs only on the fork default branch with serialized attempts", () => {
+  const sync = fs.readFileSync(path.join(__dirname, "../../.github/workflows/upstream-sync.yml"), "utf8");
+  assert.match(sync, /schedule:\s+- cron: "17 \* \* \* \*"/);
+  assert.match(sync, /workflow_dispatch:[\s\S]*retry:[\s\S]*type: boolean\s+default: false/);
+  assert.match(sync, /github\.repository == 'knobblex\/cockpit-tools' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(sync, /concurrency:\s+group: upstream-sync\s+cancel-in-progress: false/);
+  assert.doesNotMatch(sync, /\n  (push|pull_request|release):/);
+});
+
+test("upstream candidates cannot mutate the controller or promote failed builds", () => {
+  const sync = fs.readFileSync(path.join(__dirname, "../../.github/workflows/upstream-sync.yml"), "utf8");
+  const build = sync.slice(sync.indexOf("  build:"), sync.indexOf("  promote:"));
+  const promote = sync.slice(sync.indexOf("  promote:"));
+  assert.match(build, /needs: prepare/);
+  assert.match(build, /if: needs\.prepare\.outputs\.changed == 'true'/);
+  assert.match(build, /permissions:\s+contents: read/);
+  assert.match(build, /cache-mode: read/);
+  assert.match(build, /uses: \.\/.github\/workflows\/build-matrix.yml/);
+  assert.match(build, /source_ref: \$\{\{ needs\.prepare\.outputs\.candidate_sha \}\}/);
+  assert.doesNotMatch(sync, /secrets: inherit|uses:.*release\.yml|gh release|git push/);
+  assert.match(promote, /needs: \[prepare, build\]/);
+  assert.match(promote, /if: needs\.prepare\.outputs\.changed == 'true' && needs\.build\.result == 'success'/);
+  assert.equal((sync.match(/ref: \$\{\{ github.sha \}\}/g) || []).length, 2);
+  assert.match(sync, /node scripts\/release\/upstream_sync.cjs prepare/);
+  assert.match(promote, /node scripts\/release\/upstream_sync.cjs promote/);
+});
+
+test("reusable build matrix tests and bundles exactly the unprivileged candidate SHA", () => {
+  const ci = fs.readFileSync(path.join(__dirname, "../../.github/workflows/build-matrix.yml"), "utf8");
+  assert.match(ci, /workflow_call:\s+inputs:\s+source_ref:[\s\S]*?required: true\s+type: string/);
+  const checkouts = [...ci.matchAll(/uses: actions\/checkout@v4\n([\s\S]*?)(?=\n\s+- name:)/g)];
+  assert.equal(checkouts.length, 5);
+  for (const [, checkout] of checkouts) {
+    assert.match(checkout, /ref: \$\{\{ inputs\.source_ref \|\| github.sha \}\}/);
+    assert.match(checkout, /persist-credentials: false/);
+  }
+  assert.match(ci, /group: build-matrix-.*inputs.source_ref/);
+  assert.match(ci, /cargo test --manifest-path tests\/codex-seat-rotation\/Cargo.toml --locked/);
+  assert.match(ci, /needs: \[preflight-locales, preflight-typecheck, preflight-tests, preflight-ts-windows\]/);
+  assert.match(ci, /name: bundles-\$\{\{ matrix.label \}\}/);
+});
+
 // Execute the actual workflow shell steps with fake external commands. This
 // catches early exits that textual ordering checks cannot detect.
 function runPublishJob(overrides = {}) {
