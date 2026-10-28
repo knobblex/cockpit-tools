@@ -1,0 +1,94 @@
+name: 🔄 Upstream Sync
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      retry:
+        description: Retry a previously stopped candidate for the same upstream version and local commit.
+        type: boolean
+        default: false
+
+# Keep detection, validation, and promotion serialized across hourly/manual runs.
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_REPOSITORY: jlcodes99/cockpit-tools
+  SYNC_BRANCH: codex/local-customizations
+
+jobs:
+  prepare:
+    if: github.repository == 'knobblex/cockpit-tools' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.candidate.outputs.changed }}
+      base_sha: ${{ steps.candidate.outputs.base_sha }}
+      candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
+      candidate_branch: ${{ steps.candidate.outputs.candidate_branch }}
+      upstream_sha: ${{ steps.candidate.outputs.upstream_sha }}
+      release_tag: ${{ steps.candidate.outputs.release_tag }}
+    steps:
+      - name: Checkout trusted controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check release and prepare candidate without running its code
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RETRY_FAILED: ${{ inputs.retry || false }}
+        run: node scripts/release/upstream_sync.cjs prepare
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    permissions:
+      contents: read
+    # Called jobs run candidate code but must not write the controller's caches.
+    cache-mode: read
+    uses: ./.github/workflows/build-matrix.yml
+    with:
+      source_ref: ${{ needs.prepare.outputs.candidate_sha }}
+    # Deliberately do not inherit signing secrets or call the release workflow.
+
+  promote:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.changed == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout trusted controller, not the candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Promote only the tested candidate if the local branch is unchanged
+        env:
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          CANDIDATE_SHA: ${{ needs.prepare.outputs.candidate_sha }}
+          CANDIDATE_BRANCH: ${{ needs.prepare.outputs.candidate_branch }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: node scripts/release/upstream_sync.cjs promote

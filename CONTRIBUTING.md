@@ -85,17 +85,9 @@ Please be respectful and professional in all interactions. We follow the [Contri
 
 ### Release Process Summary
 
-1. Update version in `package.json` + CHANGELOG (Chinese & English)
-2. Run `npm run sync-version` → `npm run release:preflight`
-3. Commit → Tag (e.g., `v0.22.20`) → Push branch and tag
-4. CI auto-builds macOS (universal) + Windows + Linux → Generates SHA256 → Updates Homebrew Cask
+Follow the [release process](docs/release-process.md) for release preparation, supported targets, signing, and publication.
 
-### Release Targets
-
-- **macOS, Windows, and Linux**
-- macOS recommended: `universal.dmg` (compatible with both Intel and Apple Silicon)
-- Linux packages: `.AppImage`, `.deb`, and `.rpm`
-- Each release includes `SHA256SUMS.txt` for integrity verification
+For this fork's automated upstream updates and test packages, see [upstream synchronization](docs/release-process.md#upstream-sync). It does not publish an official release.
 
 ### Branch Strategy
 

@@ -1,6 +1,6 @@
 # Release Process
 
-本文档描述仓库当前由 `.github/workflows/release.yml` 执行的发布流程。发布行为以 workflow 和 `scripts/release/` 下的脚本为准；如果两者与本文不一致，应先修正文档或 workflow，再发版。
+本文档描述正式发布及 [Fork 上游同步](#upstream-sync)。行为以对应 workflow 和 `scripts/release/` 下的脚本为准；如果两者与本文不一致，应先修正文档或 workflow，再发版。
 
 ## 1. 发布前检查
 
@@ -154,3 +154,19 @@ npm run release:preflight
 GitHub 公共 latest 路由可能晚于 Release 状态变更。如果公开校验仍返回旧版本，应核对 Release API、公共下载重定向与本轮清单内容，保留版本、签名和资产归属校验；确认传播完成后可单独重跑发布校验 job。
 
 同版本撤回重发必须经用户明确授权，先核对并清理旧同版本 Release 和标签，再从新提交重建标签。发布后应额外比较公开清单与新 Release 资产的内容哈希，避免同版本旧缓存仅凭版本号通过检查。已安装同版本的用户需要重新下载安装，不会因同版本号重发而自动升级。
+
+<a id="upstream-sync"></a>
+
+## 9. Fork 上游同步与测试包
+
+[`upstream-sync.yml`](../.github/workflows/upstream-sync.yml) 是同步入口及上游仓库、目标分支、定时周期的唯一配置源；仅在该文件指定的 Fork 默认分支运行。它定期查询上游最新正式 Release，忽略草稿和预发布版，不跟随尚未发版的 `main` 提交。定时任务按 GitHub 调度执行，可能延迟；公开仓库长期无活动时可能被停用，见 [GitHub schedule 规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
+
+[`upstream_sync.cjs`](../scripts/release/upstream_sync.cjs) 校验版本标签、对应提交及 `package.json.version`，拒绝降级或同版本替换。已合入的版本直接跳过；新版本先从当前定制分支创建 `sync/upstream-*` 候选，正常合并上游，保留本地修改。候选引用也记录该上游提交与本地基线的尝试；候选准备或构建失败、取消时不启动晋升，已有尝试默认不重复打包。候选引用保留作排障证据，不用于正式发布。
+
+合并成功后，以不可变候选 SHA 调用现有 [Build Matrix](../.github/workflows/build-matrix.yml)，执行前置检查、定制席位轮换回归和全部平台构建。候选代码只有只读仓库权限和只读缓存，不继承签名 Secrets。控制脚本始终来自本次运行的默认分支提交，不能由候选代码替换。所有构建成功后，再核对候选身份及定制分支基线，以原子比较方式仅快进更新；构建期间有其他提交则停止，不覆盖新工作。
+
+在 Actions → **🔄 Upstream Sync** 的运行摘要查看上游版本、候选提交及结果，在该次运行的 **Artifacts** 下载测试包；名称与保留期以 Build Matrix 为准。部分平台已有产物不代表整次同步成功。不会创建版本标签、GitHub Release、updater 清单或 Homebrew 更新，也不会更新电脑上的已安装应用。
+
+失败后，先查看失败 job 和候选引用，修复冲突或权限问题；需要重试同一基线时，在默认分支 **Run workflow** 勾选 **retry**。若晋升推送中断，先核对远端分支是否已更新，不凭连接错误判定未成功。手工更新定制分支后会形成新的基线。使用内置 `GITHUB_TOKEN`，不要求个人 PAT；若上游涉及工作流变更而 GitHub 拒绝推送，则停止并要求人工处理，不跳过这些变更或扩大权限。失败通知遵循 GitHub 账号的 Actions 通知设置，本流程不额外发送邮件或创建 Issue。
+
+回归检查复用 `npm run test:release`，包含临时 Git 仓库中的合并、冲突、重试、版本校验与并发更新测试。它们不访问真实账号或修改远端分支。
