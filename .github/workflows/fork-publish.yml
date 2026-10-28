@@ -1,0 +1,173 @@
+name: 📦 Fork updater release
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Tested and promoted customization commit.
+        type: string
+        required: false
+      prebuilt:
+        description: Reuse the calling run's successful build artifacts.
+        type: boolean
+        default: false
+        required: false
+    secrets:
+      FORK_UPDATER_PRIVATE_KEY:
+        required: false
+
+concurrency:
+  group: fork-updater-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.repository == 'knobblex/cockpit-tools' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.prepare.outputs.changed }}
+      source: ${{ steps.prepare.outputs.source }}
+      version: ${{ steps.prepare.outputs.version }}
+      tag: ${{ steps.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify source, updater identity, and release version
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SOURCE: ${{ inputs.source_ref }}
+        run: node scripts/release/fork_publish_prepare.cjs
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true' && !inputs.prebuilt
+    permissions:
+      contents: read
+    cache-mode: read
+    uses: ./.github/workflows/build-matrix.yml
+    with:
+      source_ref: ${{ needs.prepare.outputs.source }}
+      fork_release: true
+
+  publish:
+    needs: [prepare, build]
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.changed == 'true' && ((inputs.prebuilt && needs.build.result == 'skipped') || needs.build.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      TARGETS: darwin-aarch64-app,darwin-x86_64-app,windows-x86_64-msi,windows-x86_64-nsis,linux-x86_64-appimage,linux-x86_64-deb,linux-x86_64-rpm,linux-aarch64-appimage,linux-aarch64-deb,linux-aarch64-rpm
+    steps:
+      - name: Checkout trusted controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install isolated signing tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y minisign
+          npm install --prefix "$RUNNER_TEMP/fork-signer" --ignore-scripts --no-audit --no-fund @tauri-apps/cli@2.10.1
+      - name: Download this run's completed build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundles-*
+          path: fork-bundles
+      - name: Stage whitelisted files without executing them
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/fork-stage"
+          node scripts/release/stage_release_assets.cjs --platform macos --mac-arch aarch64 --assets-dir fork-bundles/bundles-macos-aarch64 --output-dir "$stage/mac-arm"
+          node scripts/release/stage_release_assets.cjs --platform macos --mac-arch x64 --assets-dir fork-bundles/bundles-macos-x86_64 --output-dir "$stage/mac-intel"
+          node scripts/release/stage_release_assets.cjs --platform macos --mac-arch universal --assets-dir fork-bundles/bundles-macos-universal --output-dir "$stage/mac-universal"
+          node scripts/release/stage_release_assets.cjs --platform windows --assets-dir fork-bundles/bundles-windows-latest --output-dir "$stage/windows"
+          node scripts/release/stage_release_assets.cjs --platform linux --assets-dir fork-bundles/bundles-ubuntu-22.04 --output-dir "$stage/linux-x64"
+          node scripts/release/stage_release_assets.cjs --platform linux --assets-dir fork-bundles/bundles-ubuntu-24.04-arm --output-dir "$stage/linux-arm"
+          mkdir release-assets
+          for file in "$stage"/*/*; do
+            target="release-assets/$(basename "$file")"
+            test ! -e "$target" || { echo "Duplicate asset name: $target"; exit 1; }
+            cp -- "$file" "$target"
+          done
+          node -e 'const f=require("fs");const c=JSON.parse(f.readFileSync("src-tauri/tauri.conf.json"));f.writeFileSync(process.env.RUNNER_TEMP+"/fork-updater.pub",Buffer.from(c.plugins.updater.pubkey,"base64"));'
+      - name: Sign updater assets and verify the configured public key
+        shell: bash
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.FORK_UPDATER_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ''
+        run: |
+          set -euo pipefail
+          test -n "$TAURI_PRIVATE_KEY" || { echo 'FORK_UPDATER_PRIVATE_KEY is missing'; exit 1; }
+          for file in release-assets/*; do
+            case "$file" in
+              *.app.tar.gz|*.msi|*-setup.exe|*.AppImage|*.deb|*.rpm)
+                node "$RUNNER_TEMP/fork-signer/node_modules/@tauri-apps/cli/tauri.js" signer sign "$file"
+                base64 --decode "$file.sig" > "$RUNNER_TEMP/fork-signature"
+                minisign -Vm "$file" -p "$RUNNER_TEMP/fork-updater.pub" -x "$RUNNER_TEMP/fork-signature" -q
+                ;;
+            esac
+          done
+      - name: Generate complete updater manifests and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'Fork build of upstream %s. Source commit: %s.\n' "$VERSION" "$SOURCE_SHA" > "$RUNNER_TEMP/fork-notes.md"
+          published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node scripts/release/build_target_latest_json.cjs --version "$VERSION" --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets-dir release-assets --notes-file "$RUNNER_TEMP/fork-notes.md" --published-at "$published_at" --targets "$TARGETS" --output-dir release-assets
+          node scripts/release/build_merged_latest_json.cjs --version "$VERSION" --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets-dir release-assets --notes-file "$RUNNER_TEMP/fork-notes.md" --published-at "$published_at" --output release-assets/latest.json
+          (cd release-assets && sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS.txt")
+          cp "$RUNNER_TEMP/SHA256SUMS.txt" release-assets/SHA256SUMS.txt
+      - name: Create or resume draft for the tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git ls-remote --refs origin refs/heads/codex/local-customizations | cut -f1)"
+          test "$current" = "$SOURCE_SHA" || { echo 'Customization branch changed during the build'; exit 1; }
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true || { echo 'Release already published'; exit 1; }
+            git fetch --no-tags origin "refs/tags/$TAG:refs/fork-publish/tag"
+            test "$(git rev-parse 'refs/fork-publish/tag^{commit}')" = "$SOURCE_SHA" || { echo 'Draft tag points to another commit'; exit 1; }
+          else
+            test -z "$(git ls-remote --refs origin "refs/tags/$TAG")" || { echo 'Tag already exists without a draft release'; exit 1; }
+            gh release create "$TAG" --target "$SOURCE_SHA" --draft --title "Cockpit Tools fork $VERSION" --notes-file "$RUNNER_TEMP/fork-notes.md"
+          fi
+          node scripts/release/upload_release_assets.cjs "$TAG" release-assets/*
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git ls-remote --refs origin refs/heads/codex/local-customizations | cut -f1)"
+          test "$current" = "$SOURCE_SHA" || { echo 'Customization branch changed before publication'; exit 1; }
+          test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
+          gh release edit "$TAG" --draft=false --prerelease=false --latest
+      - name: Verify public updater manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release/verify_published_updater_manifests.cjs --version "$VERSION" --repo "$GITHUB_REPOSITORY" --release-base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG" --targets "$TARGETS" --legacy

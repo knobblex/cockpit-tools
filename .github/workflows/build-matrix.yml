@@ -8,6 +8,11 @@ on:
         description: Immutable candidate commit supplied by the upstream sync controller.
         required: true
         type: string
+      fork_release:
+        description: Include macOS updater archives for the fork publisher.
+        required: false
+        type: boolean
+        default: false
   pull_request:
     branches:
       - "main"
@@ -361,6 +366,15 @@ jobs:
           path: |
             build-${{ matrix.label }}.log
             warnings-${{ matrix.label }}.txt
+
+      - name: 📦 Prepare macOS updater archive
+        if: inputs.fork_release && (matrix.label == 'macos-aarch64' || matrix.label == 'macos-x86_64')
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ matrix.release_dir }}/bundle/macos"
+          test -d "Cockpit Tools.app"
+          tar -czf "Cockpit Tools.app.tar.gz" "Cockpit Tools.app"
 
       - name: 📤 Upload build bundles
         if: success()

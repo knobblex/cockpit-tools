@@ -157,7 +157,7 @@ GitHub 公共 latest 路由可能晚于 Release 状态变更。如果公开校�
 
 <a id="upstream-sync"></a>
 
-## 9. Fork 上游同步与测试包
+## 9. Fork 上游同步与更新包
 
 [`upstream-sync.yml`](../.github/workflows/upstream-sync.yml) 是同步入口及上游仓库、目标分支、定时周期的唯一配置源；仅在该文件指定的 Fork 默认分支运行。它定期查询上游最新正式 Release，忽略草稿和预发布版，不跟随尚未发版的 `main` 提交。定时任务按 GitHub 调度执行，可能延迟；公开仓库长期无活动时可能被停用，见 [GitHub schedule 规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
 
@@ -165,8 +165,12 @@ GitHub 公共 latest 路由可能晚于 Release 状态变更。如果公开校�
 
 合并成功后，以不可变候选 SHA 调用现有 [Build Matrix](../.github/workflows/build-matrix.yml)，执行前置检查、定制席位轮换回归和全部平台构建。候选代码只有只读仓库权限和只读缓存，不继承签名 Secrets。控制脚本始终来自本次运行的默认分支提交，不能由候选代码替换。所有构建成功后，再核对候选身份及定制分支基线，以原子比较方式仅快进更新；构建期间有其他提交则停止，不覆盖新工作。
 
-在 Actions → **🔄 Upstream Sync** 的运行摘要查看上游版本、候选提交及结果，在该次运行的 **Artifacts** 下载测试包；名称与保留期以 Build Matrix 为准。部分平台已有产物不代表整次同步成功。不会创建版本标签、GitHub Release、updater 清单或 Homebrew 更新，也不会更新电脑上的已安装应用。
+晋升成功后调用 [`fork-publish.yml`](../.github/workflows/fork-publish.yml)，复用本次所有平台的构建产物。发布任务只从默认分支运行可信控制脚本，不执行候选代码；它校验定制分支提交、更新地址和公钥，使用仓库 Secret `FORK_UPDATER_PRIVATE_KEY` 签名并验证更新包，生成各平台清单和校验和。全部资产上传到草稿后才公开 Release，随后验证公开清单。它不发布 Homebrew Cask。更新包使用独立的公钥与此 Fork 的 Release 地址；旧版 App 必须先手动安装一次新的 Fork 包，才能使用此通道。Tauri 更新签名不等同于 Apple 公证或 Windows Authenticode 签名。
 
-失败后，先查看失败 job 和候选引用，修复冲突或权限问题；需要重试同一基线时，在默认分支 **Run workflow** 勾选 **retry**。若晋升推送中断，先核对远端分支是否已更新，不凭连接错误判定未成功。手工更新定制分支后会形成新的基线。使用内置 `GITHUB_TOKEN`，不要求个人 PAT；若上游涉及工作流变更而 GitHub 拒绝推送，则停止并要求人工处理，不跳过这些变更或扩大权限。失败通知遵循 GitHub 账号的 Actions 通知设置，本流程不额外发送邮件或创建 Issue。
+发布以源码中的稳定版本为准，标签为 `fork-v<version>`。只有比当前 Fork Release 更高的版本才会自动更新；同一上游版本的定制代码改动不会触发已安装 App 更新。首次发布或需要重试时，在默认分支 Actions → **📦 Fork updater release** 手动运行；它对定制分支当前提交重新执行 Build Matrix。若分支在构建期间变化、版本降级、签名或任一平台失败，发布停止。一个版本若已有草稿，只能继续上传指向相同提交的草稿；已经公开的 Release 不会被覆盖。
+
+在 Actions 运行摘要查看同步及发布结果；构建中的 **Artifacts** 是临时测试包，名称与保留期以 Build Matrix 为准，公开的安装包与更新清单位于本 Fork 的 Releases。部分平台已有产物不代表整次构建或发布成功。GitHub 的定时调度可能延迟；自动更新仍取决于 App 内的更新设置。
+
+失败后，先查看失败 job 和候选引用，修复冲突或权限问题；需要重试同一同步基线时，在默认分支 **Run workflow** 勾选 **retry**。若晋升推送中断，先核对远端分支是否已更新，不凭连接错误判定未成功。晋升已经成功但发布失败时，手动运行 **📦 Fork updater release**。手工更新定制分支后会形成新的基线。使用内置 `GITHUB_TOKEN`，不要求个人 PAT；若上游涉及工作流变更而 GitHub 拒绝推送，则停止并要求人工处理，不跳过这些变更或扩大权限。失败通知遵循 GitHub 账号的 Actions 通知设置，本流程不额外发送邮件或创建 Issue。
 
 回归检查复用 `npm run test:release`，包含临时 Git 仓库中的合并、冲突、重试、版本校验与并发更新测试。它们不访问真实账号或修改远端分支。

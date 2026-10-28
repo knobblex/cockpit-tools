@@ -43,8 +43,8 @@ async function uploadReleaseAssets(tag, files, options = {}) {
   const log = options.log || console.log;
   const maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
   const delayMs = options.delayMs ?? RETRY_DELAY_MS;
-  if (!/^v\d+\.\d+\.\d+$/.test(tag) || !files.length) {
-    throw new Error("Usage: upload_release_assets.cjs v<major>.<minor>.<patch> <asset> [...assets]");
+  if (!/^(?:fork-)?v\d+\.\d+\.\d+$/.test(tag) || !files.length) {
+    throw new Error("Usage: upload_release_assets.cjs [fork-]v<major>.<minor>.<patch> <asset> [...assets]");
   }
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > MAX_ATTEMPTS || !Number.isFinite(delayMs) || delayMs < 0) {
     throw new Error("Invalid upload retry limits");

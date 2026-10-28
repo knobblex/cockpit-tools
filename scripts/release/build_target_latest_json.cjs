@@ -66,8 +66,9 @@ function listFilesRecursive(rootDir) {
   return files;
 }
 
-function buildUrl(repo, version, fileName) {
-  return `https://github.com/${repo}/releases/download/v${version}/${encodeURIComponent(fileName)}`;
+function buildUrl(repo, version, fileName, tag = `v${version}`) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) throw new Error("Invalid release tag");
+  return `https://github.com/${repo}/releases/download/${tag}/${encodeURIComponent(fileName)}`;
 }
 
 function buildTargetManifests(options) {
@@ -79,6 +80,7 @@ function buildTargetManifests(options) {
     publishedAt,
     outputDir,
     targets,
+    tag,
   } = options;
 
   if (!fs.existsSync(assetsDir) || !fs.statSync(assetsDir).isDirectory()) {
@@ -135,7 +137,7 @@ function buildTargetManifests(options) {
       version,
       notes,
       pub_date: normalizedPubDate,
-      url: buildUrl(repo, version, asset.name),
+      url: buildUrl(repo, version, asset.name, tag),
       signature,
     };
     const output = path.join(outputDir, `latest-${target}.json`);
@@ -161,6 +163,7 @@ function main() {
     publishedAt: requiredArg(args, "published-at"),
     outputDir: args["output-dir"] || ".",
     targets,
+    tag: args.tag,
   });
 
   for (const output of outputs) {

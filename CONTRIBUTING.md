@@ -87,7 +87,7 @@ Please be respectful and professional in all interactions. We follow the [Contri
 
 Follow the [release process](docs/release-process.md) for release preparation, supported targets, signing, and publication.
 
-For this fork's automated upstream updates and test packages, see [upstream synchronization](docs/release-process.md#upstream-sync). It does not publish an official release.
+For this fork's automated upstream updates and signed packages, see [upstream synchronization](docs/release-process.md#upstream-sync).
 
 ### Branch Strategy
 
