@@ -1638,6 +1638,35 @@
       "refreshed": "Nutzung aktualisiert",
       "usage": "Nutzung",
       "tierOther": "Andere"
+    },
+    "background": {
+      "title": "Hintergrund",
+      "description": "Ändert nur den App-Hintergrund. Kontokarten und Bedienelemente behalten ihr Aussehen.",
+      "presets": "Hintergrundvorlagen",
+      "default": "Standard",
+      "mist": "Nebel",
+      "forest": "Wald",
+      "dusk": "Dämmerung",
+      "sand": "Sand",
+      "custom": "Eigenes",
+      "chooseImage": "Bild wählen",
+      "replaceImage": "Bild ersetzen",
+      "imageHint": "JPG, PNG oder WebP, bis 10 MB. Große Bilder werden lokal verkleinert.",
+      "preview": "Vorschau",
+      "strength": "Stärke",
+      "blur": "Unschärfe",
+      "pixels": "{{count}} Pixel",
+      "position": "Bildposition",
+      "center": "Mitte",
+      "top": "Oben",
+      "bottom": "Unten",
+      "localHint": "Änderungen werden sofort angewendet und automatisch auf diesem Gerät gespeichert. Bilder werden nicht hochgeladen. Zurücksetzen entfernt das gespeicherte Bild.",
+      "restore": "Zurücksetzen",
+      "imageType": "Bitte ein JPG-, PNG- oder WebP-Bild wählen.",
+      "imageSize": "Bitte ein Bild unter 10 MB wählen.",
+      "imageRead": "Bild nicht lesbar. Bitte eine andere Datei versuchen.",
+      "storage": "Hintergrund konnte nicht geladen oder gespeichert werden. Erneut versuchen; der bisherige Hintergrund bleibt erhalten.",
+      "saveFailed": "Der Hintergrund wird angezeigt, konnte aber nicht gespeichert werden. Erneut versuchen; der zuvor gespeicherte Hintergrund bleibt erhalten."
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "Wochenkontingent",
       "windowHint": "Die Schwellen richten sich nach der tatsächlichen Dauer: Ab einer Woche gilt die Wochenschwelle. Konten mit nur einem Wochenkontingent prüfen nur dieses. Ohne Dauer bleibt die Zuordnung zum primären und sekundären Fenster bestehen.",
       "rule": "Kurzzeitrest <= {{shortCycle}}% oder Wochenrest <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "Start unbestätigt",
+      "description": "Der Start wurde angefordert, der Clientstatus ist aber noch unbestätigt. Das Fenster ist möglicherweise bereits offen. Bitte nicht erneut starten.",
+      "check": "Status prüfen",
+      "notRunning": "Die Zielinstanz wurde noch nicht erkannt. Prüfen Sie später erneut oder schließen Sie diesen Dialog vor einem neuen Startversuch.",
+      "checkFailed": "Der Betriebsstatus konnte nicht gelesen werden. Bitte später erneut prüfen.",
+      "maintenanceDeferred": "Die Sitzungsprüfung ist vorübergehend nicht verfügbar. Der Verlauf bleibt erhalten; dieser Wartungsschritt wurde übersprungen."
     },
     "launchErrors": {
       "sessionRestoreFailed": "Die Sitzungsreparatur ist fehlgeschlagen, die Sicherung wurde nicht vollständig wiederhergestellt. Start angehalten; vor einem erneuten Versuch Protokolle und Sicherungen prüfen.",
@@ -3188,7 +3225,7 @@
       "resetCreditStatusRedeemed": "Genutzt",
       "resetCreditStatusExpired": "Abgelaufen",
       "resetCreditStatusUnknown": "Unbekannt",
-      "resetCreditNextExpiry": "Nächster Ablauf: {{time}}",
+      "resetCreditNextExpiry": "Nächster Reset-Ablauf {{time}}",
       "resetCreditDetailsTitle": "Rücksetzdetails",
       "resetCreditNoRecords": "Keine Reset-Einträge",
       "resetCreditRecordsLoadFailed": "Reset-Einträge konnten nicht geladen werden: {{error}}",
@@ -3204,7 +3241,12 @@
       "codeReview": "Codeprüfung",
       "codeReviewShort": "Prüfung",
       "monthlyCreditsHint": "Verbleibende monatliche Credits",
-      "monthlyCreditsInline": "Credits: {{value}}"
+      "monthlyCreditsInline": "Credits: {{value}}",
+      "resetCreditExpiryHours": "{{hours}} Std. {{minutes}} Min.",
+      "resetCreditExpiryMinutes": "{{minutes}} Min.",
+      "resetCreditExpiryExpired": "Abgelaufen · Details",
+      "resetCreditExpiryUrgent": "Läuft bald ab: {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Läuft ab: {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Kontingentfehler",
@@ -3631,13 +3673,13 @@
         "encryptedContentWarning": "Es wurde Verlauf erkannt, der von einem anderen Anbieter oder Konto verschlüsselt wurde. Metadaten können migriert werden, doch Fortsetzen oder Komprimieren kann fehlschlagen; wechseln Sie zum ursprünglichen Anbieter/Konto zurück oder starten Sie eine neue Sitzung.",
         "modeHistory": "Bearbeiten/Abzweigen",
         "modeHistoryDesc": "Behebt Fehler beim Bearbeiten und Verzweigen von Chats durch ungültige Indizes.",
-        "historyStopHint": "Vor der Reparatur den gewählten Client und alle CLI-Prozesse dieser Instanz vollständig beenden. Eine Vorschau bleibt möglich.",
-        "historyDescription": "Ausgewählte Chats und ihre Vorgeschichte prüfen und nur fehlerhafte Seitenindizes zurücksetzen. Chatverlauf, Konten und Provider bleiben unverändert. Zuvor den Zielclient und zugehörige CLI-Prozesse beenden.",
+        "historyLiveHint": "Die Reparatur ist bei laufendem Client möglich. Starten Sie danach den Client neu und öffnen Sie die Chats erneut.",
+        "historyDescription": "Prüft ausgewählte Chats und deren Ursprungshistorie und setzt nur ungültige Seitenindizes zurück. Chatdaten, Konten und Provider-Einstellungen bleiben unverändert. Die Reparatur ist im laufenden Betrieb möglich; ein Neustart lädt die Indizes neu.",
         "historyPreview": "{{count}} fehlerhafte Verlaufsindizes können neu aufgebaut werden. Der Chatverlauf bleibt unverändert.",
-        "historySuccess": "{{count}} fehlerhafte Verlaufsindizes zurückgesetzt. Client und Chats zum Neuaufbau erneut öffnen. Sicherungen wurden aufbewahrt.",
+        "historySuccess": "{{count}} ungültige Verlaufsindizes zurückgesetzt. Starten Sie den Client neu und öffnen Sie die Chats erneut, um sie neu aufzubauen. Sicherungen wurden aufbewahrt.",
         "historyNoChanges": "Keine fehlerhaften Verlaufsindizes gefunden, die sicher neu aufgebaut werden können.",
         "historyFailed": "Die Reparatur der Verlaufsindizes wurde nicht abgeschlossen: {{error}}",
-        "historyRunning": "Den Zielclient und alle CLI-Prozesse dieser Instanz vollständig beenden und erneut versuchen.",
+        "historyChanged": "Chatdaten wurden während der Reparatur geändert. Diese Reparatur wurde nicht angewendet. Versuchen Sie es in Kürze erneut.",
         "historyScan": "Verlaufsindizes werden geprüft ({{current}}/{{total}})…",
         "historyReset": "Fehlerhafte Indizes werden gesichert und zurückgesetzt…"
       },
@@ -5892,6 +5934,22 @@
       "label": "Aktives Kontingent",
       "description": "Ohne API-Dienst: Aktive lokale Konten werden alle 5–30 Sekunden aktualisiert. Änderungen an Sitzungsdateien lösen Nachprüfungen aus. Es werden nur aktuelle Dateimetadaten gelesen, keine Gesprächsinhalte. Kontoausschlüsse, Tarif- und Gruppenregeln gelten weiterhin. Standardmäßig aus.",
       "error": "Die Einstellung konnte nicht geladen oder gespeichert werden. Bitte erneut versuchen."
+    },
+    "pathRecovery": {
+      "title": "Codex-Startpfad festlegen",
+      "description": "Es wurde kein nutzbarer Pfad zum Codex-Client gefunden. Wähle die App oder öffne Codex manuell und lasse es erkennen.",
+      "reload": "Neu laden",
+      "timeout": "Die Zeit für den Vorgang ist abgelaufen. Versuche es erneut; der Start wird nicht automatisch fortgesetzt.",
+      "noCandidates": "Codex wurde nicht erkannt. Öffne den Client manuell und suche erneut oder wähle seinen Pfad.",
+      "pathRequired": "Wähle den Pfad zum Codex-Client oder gib ihn ein.",
+      "invalidPath": "Dies ist kein gültiger Pfad zum Codex-Desktop-Client. Wähle die App erneut.",
+      "candidates": "Erkannte Apps",
+      "autoLaunchHint": "Deaktiviere diese Option, um Konten ohne Start der Desktop-App zu wechseln. Du kannst die App weiterhin manuell starten.",
+      "manualLaunchHint": "Das Deaktivieren des automatischen Starts schließt diesen manuellen Start nicht ab. Nur Speichern bricht diesen Startversuch ab.",
+      "saveAndRetry": "Speichern & starten",
+      "saveWithoutLaunch": "Speichern & weiter",
+      "saveOnly": "Nur speichern",
+      "validationBusy": "Der vorherige Pfad wird noch geprüft. Versuche es gleich erneut."
     }
   },
   "githubCopilot": {

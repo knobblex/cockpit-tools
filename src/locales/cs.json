@@ -1638,6 +1638,35 @@
       "refreshed": "Usage obnoveno",
       "usage": "Využití",
       "tierOther": "Jiné"
+    },
+    "background": {
+      "title": "Pozadí",
+      "description": "Mění pouze pozadí aplikace. Karty účtů a ovládací prvky si zachovají vzhled.",
+      "presets": "Předvolby pozadí",
+      "default": "Výchozí",
+      "mist": "Mlha",
+      "forest": "Les",
+      "dusk": "Soumrak",
+      "sand": "Písek",
+      "custom": "Vlastní",
+      "chooseImage": "Vybrat obrázek",
+      "replaceImage": "Změnit obrázek",
+      "imageHint": "JPG, PNG nebo WebP, do 10 MB. Velké obrázky se zmenší místně.",
+      "preview": "Náhled",
+      "strength": "Intenzita",
+      "blur": "Rozostření",
+      "pixels": "{{count}} pixelů",
+      "position": "Poloha",
+      "center": "Střed",
+      "top": "Nahoře",
+      "bottom": "Dole",
+      "localHint": "Změny se projeví ihned a automaticky se uloží v tomto zařízení. Obrázky se neodesílají. Obnovení odstraní uložený obrázek.",
+      "restore": "Obnovit",
+      "imageType": "Vyberte obrázek JPG, PNG nebo WebP.",
+      "imageSize": "Vyberte obrázek menší než 10 MB.",
+      "imageRead": "Obrázek nelze načíst. Zkuste jiný soubor.",
+      "storage": "Pozadí nelze načíst nebo uložit. Zkuste to znovu; původní pozadí zůstane zachováno.",
+      "saveFailed": "Pozadí se zobrazuje, ale nepodařilo se je uložit. Zkuste to znovu; dříve uložené pozadí zůstává zachováno."
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "Týdenní kvóta",
       "windowHint": "Prahy odpovídají skutečné délce: týden a více používá týdenní práh. Účty pouze s týdenní kvótou kontrolují jen ji. Bez délky se zachová mapování hlavního a vedlejšího okna.",
       "rule": "Krátkodobý zůstatek <= {{shortCycle}}% nebo týdenní zůstatek <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "Spuštění nepotvrzeno",
+      "description": "Požadavek na spuštění byl odeslán, ale stav klienta není potvrzen. Může již být otevřený. Nespouštějte jej znovu.",
+      "check": "Ověřit stav",
+      "notRunning": "Cílová instance zatím nebyla nalezena. Zkuste kontrolu později, nebo před dalším spuštěním zavřete tento dialog.",
+      "checkFailed": "Stav spuštění nelze načíst. Zkuste kontrolu později.",
+      "maintenanceDeferred": "Kontrola relací je dočasně nedostupná. Historie zůstala zachována a tento krok údržby byl přeskočen."
     },
     "launchErrors": {
       "sessionRestoreFailed": "Oprava relací selhala a obnova zálohy není dokončena. Spuštění bylo zastaveno; před dalším pokusem zkontrolujte protokoly a zálohy.",
@@ -3188,7 +3225,7 @@
       "resetCreditStatusRedeemed": "Použito",
       "resetCreditStatusExpired": "Vypršelo",
       "resetCreditStatusUnknown": "Neznámé",
-      "resetCreditNextExpiry": "Nejbližší expirace: {{time}}",
+      "resetCreditNextExpiry": "Nejbližší vypršení resetu {{time}}",
       "resetCreditDetailsTitle": "Podrobnosti resetů",
       "resetCreditNoRecords": "Žádné záznamy resetů",
       "resetCreditRecordsLoadFailed": "Načtení záznamů resetů selhalo: {{error}}",
@@ -3204,7 +3241,12 @@
       "codeReview": "Kontrola kódu",
       "codeReviewShort": "Recenze",
       "monthlyCreditsHint": "Zbývající měsíční kredity",
-      "monthlyCreditsInline": "Kredity: {{value}}"
+      "monthlyCreditsInline": "Kredity: {{value}}",
+      "resetCreditExpiryHours": "{{hours}} h {{minutes}} min",
+      "resetCreditExpiryMinutes": "{{minutes}} min",
+      "resetCreditExpiryExpired": "Vypršelo · podrobnosti",
+      "resetCreditExpiryUrgent": "Brzy vyprší: {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Vyprší {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Chyba kvóty",
@@ -3631,13 +3673,13 @@
         "encryptedContentWarning": "Byla zjištěna historie zašifrovaná jiným poskytovatelem nebo účtem. Metadata lze převést, ale pokračování či komprimace těchto relací může selhat; vraťte se k původnímu poskytovateli/účtu nebo začněte novou relaci.",
         "modeHistory": "Úpravy/větvení",
         "modeHistoryDesc": "Oprava úprav zpráv a větvení chatů, které selhávají kvůli neplatným indexům.",
-        "historyStopHint": "Před opravou zcela ukončete vybraného klienta a CLI používající tuto instanci. Změny si lze stále prohlédnout.",
-        "historyDescription": "Zkontroluje vybrané chaty a jejich zdrojovou historii; obnoví pouze chybné stránkované indexy. Záznamy chatů, účty a Provider zůstanou beze změn. Před spuštěním ukončete cílového klienta a související CLI.",
+        "historyLiveHint": "Opravu lze provést za běhu klienta. Poté klienta restartujte a znovu otevřete chaty.",
+        "historyDescription": "Zkontroluje vybrané chaty a jejich zdrojovou historii a obnoví pouze neplatné indexy stránek. Zprávy, účty a nastavení Provider zůstanou beze změny. Oprava funguje za běhu klienta; poté jej restartujte pro načtení indexů.",
         "historyPreview": "Nalezeno {{count}} chybných indexů historie, které lze obnovit. Záznamy chatů zůstanou beze změn.",
-        "historySuccess": "Bylo resetováno {{count}} chybných indexů historie. Znovu otevřete klienta a chaty, aby se indexy obnovily. Zálohy byly zachovány.",
+        "historySuccess": "Obnoveno {{count}} neplatných indexů historie. Restartujte klienta a znovu otevřete chaty pro jejich sestavení. Zálohy byly zachovány.",
         "historyNoChanges": "Nebyly nalezeny chybné indexy historie, které lze bezpečně obnovit.",
         "historyFailed": "Oprava indexů historie nebyla dokončena: {{error}}",
-        "historyRunning": "Zcela ukončete cílového klienta a CLI používající tuto instanci a zkuste to znovu.",
+        "historyChanged": "Data chatu se během opravy změnila. Tato oprava nebyla použita. Zkuste to za chvíli znovu.",
         "historyScan": "Kontrola indexů historie ({{current}}/{{total}})…",
         "historyReset": "Zálohování a resetování chybných indexů…"
       },
@@ -5892,6 +5934,22 @@
       "label": "Synchronizace kvóty",
       "description": "Bez spuštění služby API. Aktivní místní účty se obnovují každých 5–30 sekund; změny souborů relací spustí další kontrolu. Čtou se jen aktuální metadata souborů, nikoli obsah konverzací. Vyloučení účtů, filtry tarifů a pravidla skupin zůstávají platné. Ve výchozím stavu vypnuto.",
       "error": "Nastavení se nepodařilo načíst nebo uložit. Zkuste to znovu."
+    },
+    "pathRecovery": {
+      "title": "Nastavit cestu ke Codexu",
+      "description": "Nebyla nalezena použitelná cesta ke klientovi Codex. Vyberte aplikaci nebo ji ručně spusťte a nechte vyhledat.",
+      "reload": "Načíst znovu",
+      "timeout": "Operace překročila časový limit. Zkuste to znovu; spuštění nebude automaticky pokračovat.",
+      "noCandidates": "Codex nebyl nalezen. Spusťte klienta ručně a opakujte hledání nebo vyberte jeho cestu.",
+      "pathRequired": "Vyberte nebo zadejte cestu ke klientovi Codex.",
+      "invalidPath": "Toto není platná cesta k desktopovému klientovi Codex. Vyberte aplikaci znovu.",
+      "candidates": "Nalezené aplikace",
+      "autoLaunchHint": "Vypněte tuto volbu, pokud chcete pouze přepínat účty bez spuštění desktopové aplikace. Ruční spuštění zůstane dostupné.",
+      "manualLaunchHint": "Vypnutí automatického spouštění nedokončí toto ruční spuštění. Pouhé uložení nastavení tento pokus zruší.",
+      "saveAndRetry": "Uložit a opakovat",
+      "saveWithoutLaunch": "Uložit a pokračovat",
+      "saveOnly": "Pouze uložit",
+      "validationBusy": "Kontrola předchozí cesty stále probíhá. Zkuste to za chvíli znovu."
     }
   },
   "githubCopilot": {

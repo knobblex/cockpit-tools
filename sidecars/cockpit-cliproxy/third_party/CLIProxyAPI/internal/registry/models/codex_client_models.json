@@ -147,7 +147,7 @@
         {
           "id": "ultrafast",
           "name": "Ultrafast",
-          "description": "Fastest speed, highest usage"
+          "description": ""
         }
       ],
       "additional_speed_tiers": [
@@ -779,7 +779,7 @@
         {
           "id": "ultrafast",
           "name": "Ultrafast",
-          "description": "Fastest speed, highest usage"
+          "description": ""
         }
       ],
       "additional_speed_tiers": [

@@ -1638,6 +1638,35 @@
       "refreshed": "已刷新用量",
       "usage": "用量",
       "tierOther": "其他"
+    },
+    "background": {
+      "title": "背景",
+      "description": "只更換軟體背景，帳號卡片和控制項維持目前樣式。",
+      "presets": "預設背景",
+      "default": "預設",
+      "mist": "霧藍",
+      "forest": "森林",
+      "dusk": "暮紫",
+      "sand": "暖沙",
+      "custom": "自訂",
+      "chooseImage": "選擇圖片",
+      "replaceImage": "更換圖片",
+      "imageHint": "支援 JPG、PNG、WebP，最大 10 MB；大圖會在本機縮小。",
+      "preview": "預覽",
+      "strength": "背景強度",
+      "blur": "模糊",
+      "pixels": "{{count}} 像素",
+      "position": "圖片位置",
+      "center": "置中",
+      "top": "頂部",
+      "bottom": "底部",
+      "localHint": "修改立即生效並在目前裝置自動儲存，圖片不會上傳。還原預設會移除已儲存的圖片。",
+      "restore": "還原預設",
+      "imageType": "請選擇 JPG、PNG 或 WebP 圖片。",
+      "imageSize": "請選擇小於 10 MB 的圖片。",
+      "imageRead": "無法讀取這張圖片，請換一張重試。",
+      "storage": "背景讀取或儲存失敗，請重試；原有背景仍會保留。",
+      "saveFailed": "目前背景已顯示，但儲存失敗。請重試；上次儲存的背景仍會保留。"
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "週額度",
       "windowHint": "依實際時長匹配閾值，一週及以上使用週額度閾值；只有週額度時僅檢查週額度。缺少時長時沿用主／次視窗對應。",
       "rule": "短週期剩餘 <= {{shortCycle}}% 或週剩餘 <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "啟動待確認",
+      "description": "啟動請求已送出，尚未確認用戶端狀態。用戶端可能已開啟，請勿重複啟動。",
+      "check": "檢查狀態",
+      "notRunning": "尚未偵測到目標執行個體。請稍後檢查，或關閉此視窗後重試啟動。",
+      "checkFailed": "暫時無法讀取執行狀態，請稍後重試檢查。",
+      "maintenanceDeferred": "暫時無法檢查工作階段，已保留歷史並略過本次維護。"
     },
     "launchErrors": {
       "sessionRestoreFailed": "工作階段修復失敗，備份還原尚未完成，已停止啟動。請先檢查日誌與備份，再重試。",
@@ -3319,7 +3356,7 @@
       "resetCreditStatusRedeemed": "已使用",
       "resetCreditStatusExpired": "已過期",
       "resetCreditStatusUnknown": "未知",
-      "resetCreditNextExpiry": "最近到期：{{time}}",
+      "resetCreditNextExpiry": "最近重設到期 {{time}}",
       "resetCreditDetailsTitle": "重置次數明細",
       "resetCreditNoRecords": "暫無重置記錄",
       "resetCreditRecordsLoadFailed": "載入重置記錄失敗：{{error}}",
@@ -3335,7 +3372,12 @@
       "codeReview": "程式碼審查",
       "codeReviewShort": "審閱",
       "monthlyCreditsHint": "本月 credits 剩餘",
-      "monthlyCreditsInline": "Credits：{{value}}"
+      "monthlyCreditsInline": "Credits：{{value}}",
+      "resetCreditExpiryHours": "{{hours}}時{{minutes}}分",
+      "resetCreditExpiryMinutes": "{{minutes}}分",
+      "resetCreditExpiryExpired": "已到期 · 查看詳情",
+      "resetCreditExpiryUrgent": "將到期 {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "到期 {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "配額異常",
@@ -3762,13 +3804,13 @@
         "encryptedContentWarning": "偵測到由其他 Provider 或帳號加密的歷史內容。中繼資料可以移轉，但繼續或壓縮這些工作階段仍可能失敗；需要可靠續聊時請切回原 Provider/帳號或開啟新工作階段。",
         "modeHistory": "編輯／分支修復",
         "modeHistoryDesc": "修復索引異常導致的訊息編輯和建立聊天分支失敗。",
-        "historyStopHint": "修復前請先完全結束所選用戶端及使用該執行個體的 CLI；仍可先預覽變更。",
-        "historyDescription": "檢查所選對話及祖先歷史，僅重建異常的分頁索引。聊天記錄、帳號與 Provider 保持原樣；執行前須結束目標用戶端及相關 CLI。",
+        "historyLiveHint": "可在用戶端執行時直接修復。完成後請重新啟動用戶端並重新開啟會話。",
+        "historyDescription": "檢查所選會話及祖先歷史，僅重設異常的分頁索引。聊天記錄、帳號與 Provider 保持原樣；支援執行中修復，完成後重新啟動用戶端以重新載入索引。",
         "historyPreview": "發現 {{count}} 段可重建的異常歷史索引；聊天記錄保持原樣。",
-        "historySuccess": "已重設 {{count}} 段異常歷史索引。請重新開啟用戶端和對話以重建；備份已保留。",
+        "historySuccess": "已重設 {{count}} 段異常歷史索引。請重新啟動用戶端並重新開啟會話以重建；備份已保留。",
         "historyNoChanges": "未發現可安全重建的異常歷史索引。",
         "historyFailed": "歷史索引修復未完成：{{error}}",
-        "historyRunning": "請先完全結束目標用戶端及使用此執行個體的 CLI，再重試。",
+        "historyChanged": "會話資料在修復期間發生變化，本次修復未寫入。請稍後重試。",
         "historyScan": "正在檢查歷史索引（{{current}}/{{total}}）…",
         "historyReset": "正在備份並重設異常索引…"
       },
@@ -5892,6 +5934,22 @@
       "label": "活躍額度同步",
       "description": "無需啟動 API 服務。活躍本機帳號每 5–30 秒動態更新，工作階段檔案變更時補查；僅檢查近期檔案資訊，不讀取對話內容。沿用帳號停用、方案與群組規則，預設關閉。",
       "error": "無法讀取或儲存設定，請重試。"
+    },
+    "pathRecovery": {
+      "title": "設定 Codex 啟動路徑",
+      "description": "找不到可用的 Codex 用戶端路徑。請選擇程式，或先手動開啟 Codex 再偵測。",
+      "reload": "重新載入",
+      "timeout": "操作逾時，請重試。不會自動繼續啟動。",
+      "noCandidates": "未偵測到 Codex，請先手動開啟用戶端再偵測，或選擇程式路徑。",
+      "pathRequired": "請選擇或輸入 Codex 用戶端路徑。",
+      "invalidPath": "此路徑不是有效的 Codex 桌面用戶端，請重新選擇程式。",
+      "candidates": "偵測結果",
+      "autoLaunchHint": "若只需切換帳號、不需啟動桌面端，可關閉此開關。關閉後仍可手動啟動。",
+      "manualLaunchHint": "關閉自動啟動不代表本次手動啟動成功。僅儲存設定會取消本次啟動嘗試。",
+      "saveAndRetry": "儲存並重試",
+      "saveWithoutLaunch": "儲存並繼續切換",
+      "saveOnly": "僅儲存設定",
+      "validationBusy": "上一個路徑仍在檢查，請稍後重試。"
     }
   },
   "githubCopilot": {

@@ -483,11 +483,11 @@ pub async fn codex_local_access_set_enabled(
     codex_local_access::set_local_access_enabled(enabled).await
 }
 
-#[tauri::command]
-pub async fn codex_local_access_activate(
+async fn codex_local_access_activate_internal(
     app: AppHandle,
     auto_repair_mode: Option<codex_session_visibility::CodexSessionVisibilityAutoRepairMode>,
     instance_id: Option<String>,
+    launch_after_switch: Option<bool>,
 ) -> Result<CodexLocalAccessState, String> {
     let flow_started = Instant::now();
     let target_instance_id = instance_id
@@ -604,7 +604,7 @@ pub async fn codex_local_access_activate(
 
     logger::log_info("API 服务启动模式下跳过 OpenCode / OpenClaw OAuth 同步");
 
-    if user_config.codex_launch_on_switch {
+    if launch_after_switch.unwrap_or(user_config.codex_launch_on_switch) {
         let launch_started = Instant::now();
         #[cfg(target_os = "macos")]
         if launch_target.is_default && process::is_codex_running() {
@@ -634,20 +634,7 @@ pub async fn codex_local_access_activate(
             Ok(_) => None,
             Err(e) => {
                 logger::log_warn(&format!("Codex 启动失败: {}", e));
-                if e.starts_with("APP_PATH_NOT_FOUND:") {
-                    let retry = if launch_target.is_default {
-                        serde_json::json!({ "kind": "default" })
-                    } else {
-                        serde_json::json!({
-                            "kind": "instance",
-                            "instanceId": target_instance_id,
-                        })
-                    };
-                    let _ = app.emit(
-                        "app:path_missing",
-                        serde_json::json!({ "app": "codex", "retry": retry }),
-                    );
-                }
+
                 Some(e)
             }
         };
@@ -667,7 +654,7 @@ pub async fn codex_local_access_activate(
             ));
         }
     } else {
-        logger::log_info("已关闭切换 Codex 时自动启动 Codex App");
+        logger::log_info("本次 API 服务切换不启动 Codex App");
     }
 
     let tray_started = Instant::now();

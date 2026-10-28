@@ -22,6 +22,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
    DEFAULT_CODEX_INSTANCE_ID,
    type CodexLaunchPreviewLaunchOptions,
  } from "../components/codex/CodexLaunchPreviewModal";
+import { isCodexLaunchCancelled } from '../utils/codexLaunchCancellation';
 import {
   CODEX_LAUNCH_PREVIEW_API_SERVICE_CARD_KEY,
   persistCodexLaunchPreviewLastInstanceId,
@@ -1165,7 +1166,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
                 preparing: false,
                 executing: false,
                 executeMessage: null,
-                executeError: String(error).replace(/^Error:\s*/, ""),
+                executeError: isCodexLaunchCancelled(error) ? null : String(error).replace(/^Error:\s*/, ""),
               }
             : prev,
         );
@@ -1429,7 +1430,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
                 preparing: false,
                 executing: false,
                 executeMessage: null,
-                executeError: String(error).replace(/^Error:\s*/, ""),
+                executeError: isCodexLaunchCancelled(error) ? null : String(error).replace(/^Error:\s*/, ""),
               }
             : prev,
         );
@@ -1484,7 +1485,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
             ? {
                 ...prev,
                 executing: false,
-                executeError: String(error).replace(/^Error:\s*/, ""),
+                executeError: isCodexLaunchCancelled(error) ? null : String(error).replace(/^Error:\s*/, ""),
               }
             : prev,
         );
@@ -1528,7 +1529,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
             prev && prev.instanceDraft?.userDataDir === draft.userDataDir
               ? {
                   ...prev,
-                  executeError: String(error).replace(/^Error:\s*/, ""),
+                  executeError: isCodexLaunchCancelled(error) ? null : String(error).replace(/^Error:\s*/, ""),
                 }
               : prev,
           );

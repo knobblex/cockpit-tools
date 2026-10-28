@@ -1638,6 +1638,35 @@
       "refreshed": "Usage actualisé",
       "usage": "Consommation",
       "tierOther": "Autre"
+    },
+    "background": {
+      "title": "Arrière-plan",
+      "description": "Modifie uniquement le fond de l’application. Les cartes de compte et commandes conservent leur apparence.",
+      "presets": "Fonds prédéfinis",
+      "default": "Par défaut",
+      "mist": "Brume",
+      "forest": "Forêt",
+      "dusk": "Crépuscule",
+      "sand": "Sable",
+      "custom": "Personnel",
+      "chooseImage": "Choisir une image",
+      "replaceImage": "Changer l’image",
+      "imageHint": "JPG, PNG ou WebP, 10 Mo maximum. Les grandes images sont réduites localement.",
+      "preview": "Aperçu",
+      "strength": "Intensité",
+      "blur": "Flou",
+      "pixels": "{{count}} pixels",
+      "position": "Position",
+      "center": "Centre",
+      "top": "Haut",
+      "bottom": "Bas",
+      "localHint": "Les changements sont immédiats et enregistrés automatiquement sur cet appareil. Aucune image n’est envoyée. Rétablir supprime l’image enregistrée.",
+      "restore": "Rétablir",
+      "imageType": "Choisissez une image JPG, PNG ou WebP.",
+      "imageSize": "Choisissez une image de moins de 10 Mo.",
+      "imageRead": "Impossible de lire cette image. Essayez un autre fichier.",
+      "storage": "Échec du chargement ou de l’enregistrement. Réessayez ; le fond enregistré est conservé.",
+      "saveFailed": "Le fond est affiché mais n’a pas pu être enregistré. Réessayez ; le fond précédemment enregistré est conservé."
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "Quota hebdomadaire",
       "windowHint": "Les seuils suivent la durée réelle : une semaine ou plus utilise le seuil hebdomadaire. Les comptes avec uniquement ce quota ne vérifient que celui-ci. Sans durée, la correspondance des fenêtres principale et secondaire est conservée.",
       "rule": "Solde court <= {{shortCycle}}% ou hebdomadaire <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "Démarrage à confirmer",
+      "description": "Le démarrage a été demandé, mais l’état du client reste à confirmer. Il est peut-être déjà ouvert. Évitez de le relancer.",
+      "check": "Vérifier l’état",
+      "notRunning": "L’instance cible n’a pas encore été détectée. Vérifiez plus tard ou fermez cette boîte de dialogue avant de réessayer le démarrage.",
+      "checkFailed": "Impossible de lire l’état d’exécution. Veuillez vérifier à nouveau plus tard.",
+      "maintenanceDeferred": "La vérification des sessions est temporairement indisponible. L’historique est conservé et cette étape de maintenance a été ignorée."
     },
     "launchErrors": {
       "sessionRestoreFailed": "La réparation des sessions a échoué et la restauration est incomplète. Démarrage arrêté ; vérifiez les journaux et les sauvegardes avant de réessayer.",
@@ -3188,7 +3225,7 @@
       "resetCreditStatusRedeemed": "Utilisé",
       "resetCreditStatusExpired": "Expiré",
       "resetCreditStatusUnknown": "Inconnu",
-      "resetCreditNextExpiry": "Prochaine expiration : {{time}}",
+      "resetCreditNextExpiry": "Prochaine expiration de réinitialisation {{time}}",
       "resetCreditDetailsTitle": "Détails des réinitialisations",
       "resetCreditNoRecords": "Aucun historique de réinitialisation",
       "resetCreditRecordsLoadFailed": "Impossible de charger l’historique de réinitialisation : {{error}}",
@@ -3204,7 +3241,12 @@
       "codeReview": "Revue de code",
       "codeReviewShort": "Revue",
       "monthlyCreditsHint": "Crédits mensuels restants",
-      "monthlyCreditsInline": "Crédits : {{value}}"
+      "monthlyCreditsInline": "Crédits : {{value}}",
+      "resetCreditExpiryHours": "{{hours}} h {{minutes}} min",
+      "resetCreditExpiryMinutes": "{{minutes}} min",
+      "resetCreditExpiryExpired": "Expiré · détails",
+      "resetCreditExpiryUrgent": "Expire bientôt : {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Expire le {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Erreur de quota",
@@ -3631,13 +3673,13 @@
         "encryptedContentWarning": "Un historique chiffré par un autre fournisseur ou compte a été détecté. Les métadonnées peuvent être migrées, mais la poursuite ou la compression de ces sessions peut échouer ; revenez au fournisseur/compte d’origine ou démarrez une nouvelle session.",
         "modeHistory": "Édition/branches",
         "modeHistoryDesc": "Corrige les échecs de modification des messages et de création de branches dus à des index invalides.",
-        "historyStopHint": "Quittez complètement le client choisi et les CLI utilisant cette instance avant la réparation. L’aperçu reste disponible.",
-        "historyDescription": "Vérifier les discussions choisies et leur historique parent, puis réinitialiser uniquement les index paginés invalides. Les messages, comptes et Provider restent inchangés. Fermez le client cible et les CLI associés avant de lancer.",
+        "historyLiveHint": "La réparation est possible pendant que le client est ouvert. Redémarrez ensuite le client et rouvrez les discussions.",
+        "historyDescription": "Vérifie les discussions sélectionnées et leur historique parent et réinitialise uniquement les index de pagination invalides. Les messages, comptes et paramètres Provider restent inchangés. La réparation fonctionne avec le client ouvert ; redémarrez-le ensuite pour recharger les index.",
         "historyPreview": "{{count}} index d’historique invalides peuvent être reconstruits. Les messages restent inchangés.",
-        "historySuccess": "{{count}} index d’historique invalides ont été réinitialisés. Rouvrez le client et les discussions pour les reconstruire. Les sauvegardes sont conservées.",
+        "historySuccess": "{{count}} index d’historique invalides réinitialisés. Redémarrez le client et rouvrez les discussions pour les reconstruire. Les sauvegardes ont été conservées.",
         "historyNoChanges": "Aucun index d’historique invalide pouvant être reconstruit en toute sécurité n’a été trouvé.",
         "historyFailed": "La réparation des index d’historique n’a pas abouti : {{error}}",
-        "historyRunning": "Quittez complètement le client cible et les CLI utilisant cette instance, puis réessayez.",
+        "historyChanged": "Les données de discussion ont changé pendant la réparation. Cette réparation n’a pas été appliquée. Réessayez dans un instant.",
         "historyScan": "Vérification des index d’historique ({{current}}/{{total}})…",
         "historyReset": "Sauvegarde et réinitialisation des index invalides…"
       },
@@ -5892,6 +5934,22 @@
       "label": "Quota actif synchronisé",
       "description": "Sans service API. Les comptes locaux actifs sont actualisés toutes les 5 à 30 secondes ; les changements de fichiers de session déclenchent une vérification. Seules les métadonnées récentes sont examinées, sans lire les conversations. Les exclusions, filtres de forfait et règles de groupe restent appliqués. Désactivé par défaut.",
       "error": "Impossible de charger ou enregistrer ce réglage. Réessayez."
+    },
+    "pathRecovery": {
+      "title": "Définir le chemin de Codex",
+      "description": "Aucun chemin utilisable vers le client Codex n’a été trouvé. Sélectionnez l’application, ou ouvrez Codex manuellement puis lancez la détection.",
+      "reload": "Recharger",
+      "timeout": "Le délai de l’opération est dépassé. Réessayez ; le démarrage ne reprendra pas automatiquement.",
+      "noCandidates": "Codex n’a pas été détecté. Ouvrez le client manuellement puis relancez la détection, ou sélectionnez son chemin.",
+      "pathRequired": "Sélectionnez ou saisissez le chemin du client Codex.",
+      "invalidPath": "Ce chemin ne correspond pas à un client de bureau Codex valide. Sélectionnez à nouveau l’application.",
+      "candidates": "Applications détectées",
+      "autoLaunchHint": "Désactivez cette option pour changer de compte sans lancer l’application de bureau. Le démarrage manuel reste possible.",
+      "manualLaunchHint": "Désactiver le démarrage automatique ne termine pas ce lancement manuel. Enregistrer uniquement les réglages annule cette tentative.",
+      "saveAndRetry": "Enregistrer et relancer",
+      "saveWithoutLaunch": "Enregistrer et continuer",
+      "saveOnly": "Enregistrer seulement",
+      "validationBusy": "La vérification du chemin précédent est toujours en cours. Réessayez dans un instant."
     }
   },
   "githubCopilot": {

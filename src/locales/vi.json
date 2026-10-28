@@ -1638,6 +1638,35 @@
       "refreshed": "Đã làm mới usage",
       "usage": "Lượng dùng",
       "tierOther": "Khác"
+    },
+    "background": {
+      "title": "Nền",
+      "description": "Chỉ đổi nền ứng dụng. Thẻ tài khoản và nút điều khiển giữ nguyên giao diện.",
+      "presets": "Mẫu nền",
+      "default": "Mặc định",
+      "mist": "Sương",
+      "forest": "Rừng",
+      "dusk": "Hoàng hôn",
+      "sand": "Cát",
+      "custom": "Tùy chỉnh",
+      "chooseImage": "Chọn ảnh",
+      "replaceImage": "Đổi ảnh",
+      "imageHint": "JPG, PNG hoặc WebP, tối đa 10 MB. Ảnh lớn được thu nhỏ ngay trên thiết bị.",
+      "preview": "Xem trước",
+      "strength": "Độ đậm",
+      "blur": "Độ mờ",
+      "pixels": "{{count}} điểm ảnh",
+      "position": "Vị trí ảnh",
+      "center": "Giữa",
+      "top": "Trên",
+      "bottom": "Dưới",
+      "localHint": "Thay đổi có hiệu lực ngay và tự động lưu trên thiết bị này. Ảnh không được tải lên. Khôi phục sẽ xóa ảnh đã lưu.",
+      "restore": "Khôi phục",
+      "imageType": "Hãy chọn ảnh JPG, PNG hoặc WebP.",
+      "imageSize": "Hãy chọn ảnh nhỏ hơn 10 MB.",
+      "imageRead": "Không đọc được ảnh. Hãy thử tệp khác.",
+      "storage": "Không tải hoặc lưu được nền. Hãy thử lại; nền đã lưu vẫn được giữ.",
+      "saveFailed": "Nền đang hiển thị nhưng chưa lưu được. Hãy thử lại; nền đã lưu trước đó vẫn được giữ."
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "Hạn mức tuần",
       "windowHint": "Ngưỡng dựa trên thời lượng thực tế: từ một tuần trở lên dùng ngưỡng tuần. Tài khoản chỉ có hạn mức tuần chỉ kiểm tra hạn mức đó. Khi thiếu thời lượng, giữ ánh xạ cửa sổ chính/phụ.",
       "rule": "Còn lại ngắn hạn <= {{shortCycle}}% hoặc tuần <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "Chưa xác nhận khởi chạy",
+      "description": "Đã gửi yêu cầu khởi chạy nhưng chưa xác nhận được trạng thái ứng dụng. Có thể ứng dụng đã mở. Vui lòng không khởi chạy lại.",
+      "check": "Kiểm tra",
+      "notRunning": "Chưa phát hiện phiên bản đích. Hãy kiểm tra lại sau hoặc đóng hộp thoại này trước khi thử khởi chạy lại.",
+      "checkFailed": "Không thể đọc trạng thái hoạt động. Vui lòng kiểm tra lại sau.",
+      "maintenanceDeferred": "Tạm thời không thể kiểm tra phiên. Lịch sử được giữ nguyên và bước bảo trì này đã được bỏ qua."
     },
     "launchErrors": {
       "sessionRestoreFailed": "Sửa phiên thất bại và khôi phục bản sao lưu chưa hoàn tất. Đã dừng khởi chạy; hãy kiểm tra nhật ký và bản sao lưu trước khi thử lại.",
@@ -3188,7 +3225,7 @@
       "resetCreditStatusRedeemed": "Đã dùng",
       "resetCreditStatusExpired": "Hết hạn",
       "resetCreditStatusUnknown": "Không rõ",
-      "resetCreditNextExpiry": "Hết hạn gần nhất: {{time}}",
+      "resetCreditNextExpiry": "Lần đặt lại hết hạn gần nhất {{time}}",
       "resetCreditDetailsTitle": "Chi tiết lượt đặt lại",
       "resetCreditNoRecords": "Chưa có bản ghi đặt lại",
       "resetCreditRecordsLoadFailed": "Không tải được bản ghi đặt lại: {{error}}",
@@ -3204,7 +3241,12 @@
       "codeReview": "Rà soát mã",
       "codeReviewShort": "Rà soát",
       "monthlyCreditsHint": "Tín dụng tháng còn lại",
-      "monthlyCreditsInline": "Tín dụng: {{value}}"
+      "monthlyCreditsInline": "Tín dụng: {{value}}",
+      "resetCreditExpiryHours": "{{hours}} giờ {{minutes}} phút",
+      "resetCreditExpiryMinutes": "{{minutes}} phút",
+      "resetCreditExpiryExpired": "Đã hết hạn · chi tiết",
+      "resetCreditExpiryUrgent": "Sắp hết hạn: {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Hết hạn {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Lỗi quota",
@@ -3631,13 +3673,13 @@
         "encryptedContentWarning": "Đã phát hiện lịch sử được mã hóa bởi nhà cung cấp hoặc tài khoản khác. Có thể di chuyển siêu dữ liệu, nhưng việc tiếp tục hoặc nén các phiên đó vẫn có thể thất bại; hãy quay lại nhà cung cấp/tài khoản gốc hoặc mở phiên mới.",
         "modeHistory": "Sửa chỉnh sửa/nhánh",
         "modeHistoryDesc": "Khắc phục lỗi sửa tin nhắn và tạo nhánh trò chuyện do chỉ mục không hợp lệ.",
-        "historyStopHint": "Trước khi sửa, hãy thoát hoàn toàn ứng dụng đã chọn và CLI đang dùng phiên bản này. Bạn vẫn có thể xem trước thay đổi.",
-        "historyDescription": "Kiểm tra các cuộc trò chuyện đã chọn và lịch sử nguồn; chỉ đặt lại chỉ mục phân trang bị lỗi. Bản ghi trò chuyện, tài khoản và Provider được giữ nguyên. Hãy thoát ứng dụng đích và CLI liên quan trước khi chạy.",
+        "historyLiveHint": "Có thể sửa khi ứng dụng khách đang chạy. Sau đó, hãy khởi động lại ứng dụng khách và mở lại các cuộc trò chuyện.",
+        "historyDescription": "Kiểm tra các cuộc trò chuyện đã chọn và lịch sử gốc, chỉ đặt lại các chỉ mục phân trang không hợp lệ. Tin nhắn, tài khoản và cài đặt Provider được giữ nguyên. Có thể sửa khi ứng dụng khách đang chạy; sau đó khởi động lại để tải lại chỉ mục.",
         "historyPreview": "Tìm thấy {{count}} chỉ mục lịch sử bị lỗi có thể tạo lại. Bản ghi trò chuyện được giữ nguyên.",
-        "historySuccess": "Đã đặt lại {{count}} chỉ mục lịch sử bị lỗi. Mở lại ứng dụng và cuộc trò chuyện để tạo lại chỉ mục. Các bản sao lưu đã được giữ lại.",
+        "historySuccess": "Đã đặt lại {{count}} chỉ mục lịch sử không hợp lệ. Hãy khởi động lại ứng dụng khách và mở lại các cuộc trò chuyện để tạo lại chỉ mục. Các bản sao lưu đã được giữ lại.",
         "historyNoChanges": "Không tìm thấy chỉ mục lịch sử bị lỗi nào có thể tạo lại an toàn.",
         "historyFailed": "Chưa hoàn tất sửa chỉ mục lịch sử: {{error}}",
-        "historyRunning": "Hãy thoát hoàn toàn ứng dụng đích và CLI đang dùng phiên bản này rồi thử lại.",
+        "historyChanged": "Dữ liệu trò chuyện đã thay đổi trong lúc sửa. Lần sửa này chưa được áp dụng. Hãy thử lại sau ít phút.",
         "historyScan": "Đang kiểm tra chỉ mục lịch sử ({{current}}/{{total}})…",
         "historyReset": "Đang sao lưu và đặt lại chỉ mục bị lỗi…"
       },
@@ -5892,6 +5934,22 @@
       "label": "Đồng bộ hạn mức",
       "description": "Không cần chạy dịch vụ API. Tài khoản cục bộ đang hoạt động được cập nhật mỗi 5–30 giây; thay đổi tệp phiên sẽ kích hoạt kiểm tra bổ sung. Chỉ kiểm tra siêu dữ liệu tệp gần đây, không đọc nội dung hội thoại. Giữ nguyên loại trừ tài khoản, bộ lọc gói và quy tắc nhóm. Mặc định tắt.",
       "error": "Không thể tải hoặc lưu cài đặt. Vui lòng thử lại."
+    },
+    "pathRecovery": {
+      "title": "Đặt đường dẫn mở Codex",
+      "description": "Không tìm thấy đường dẫn ứng dụng Codex hợp lệ. Hãy chọn ứng dụng hoặc mở Codex thủ công rồi dò tìm.",
+      "reload": "Tải lại",
+      "timeout": "Thao tác đã hết thời gian chờ. Hãy thử lại; quá trình khởi động sẽ không tự tiếp tục.",
+      "noCandidates": "Không phát hiện Codex. Hãy mở ứng dụng thủ công rồi dò lại, hoặc chọn đường dẫn.",
+      "pathRequired": "Hãy chọn hoặc nhập đường dẫn ứng dụng Codex.",
+      "invalidPath": "Đường dẫn này không trỏ đến ứng dụng Codex trên máy tính hợp lệ. Hãy chọn lại ứng dụng.",
+      "candidates": "Ứng dụng được phát hiện",
+      "autoLaunchHint": "Tắt tùy chọn này nếu chỉ cần đổi tài khoản mà không mở ứng dụng trên máy tính. Bạn vẫn có thể mở thủ công.",
+      "manualLaunchHint": "Tắt tự khởi động không hoàn tất lần mở thủ công này. Chỉ lưu cài đặt sẽ hủy lần khởi động này.",
+      "saveAndRetry": "Lưu và thử lại",
+      "saveWithoutLaunch": "Lưu và tiếp tục",
+      "saveOnly": "Chỉ lưu cài đặt",
+      "validationBusy": "Đường dẫn trước vẫn đang được kiểm tra. Vui lòng thử lại sau giây lát."
     }
   },
   "githubCopilot": {

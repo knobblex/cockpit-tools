@@ -1638,6 +1638,35 @@
       "refreshed": "Kullanım yenilendi",
       "usage": "Kullanım",
       "tierOther": "Diğer"
+    },
+    "background": {
+      "title": "Arka plan",
+      "description": "Yalnızca uygulama arka planı değişir. Hesap kartları ve denetimler aynı kalır.",
+      "presets": "Hazır arka planlar",
+      "default": "Varsayılan",
+      "mist": "Sis",
+      "forest": "Orman",
+      "dusk": "Alacakaranlık",
+      "sand": "Kum",
+      "custom": "Özel",
+      "chooseImage": "Görsel seç",
+      "replaceImage": "Görseli değiştir",
+      "imageHint": "JPG, PNG veya WebP, en fazla 10 MB. Büyük görseller cihazda küçültülür.",
+      "preview": "Önizleme",
+      "strength": "Yoğunluk",
+      "blur": "Bulanıklık",
+      "pixels": "{{count}} piksel",
+      "position": "Görsel konumu",
+      "center": "Orta",
+      "top": "Üst",
+      "bottom": "Alt",
+      "localHint": "Değişiklikler anında uygulanır ve bu cihazda otomatik kaydedilir. Görseller yüklenmez. Sıfırlama kayıtlı görseli siler.",
+      "restore": "Sıfırla",
+      "imageType": "JPG, PNG veya WebP görseli seçin.",
+      "imageSize": "10 MB altında bir görsel seçin.",
+      "imageRead": "Görsel okunamadı. Başka bir dosya deneyin.",
+      "storage": "Arka plan yüklenemedi veya kaydedilemedi. Tekrar deneyin; önceki arka plan korunur.",
+      "saveFailed": "Arka plan görüntüleniyor ancak kaydedilemedi. Tekrar deneyin; daha önce kaydedilen arka plan korunur."
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "Haftalık kota",
       "windowHint": "Eşikler gerçek süreye göre belirlenir: bir hafta veya daha uzun süre haftalık eşiği kullanır. Yalnızca haftalık kotası olan hesaplarda sadece bu kota kontrol edilir. Süre yoksa birincil/ikincil pencere eşlemesi korunur.",
       "rule": "Kısa dönem kalan <= {{shortCycle}}% veya haftalık kalan <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "Başlatma doğrulanmadı",
+      "description": "Başlatma istendi, ancak istemcinin durumu henüz doğrulanmadı. Zaten açık olabilir. Lütfen tekrar başlatmayın.",
+      "check": "Durumu denetle",
+      "notRunning": "Hedef örnek henüz algılanmadı. Daha sonra denetleyin veya yeniden başlatmayı denemeden önce bu pencereyi kapatın.",
+      "checkFailed": "Çalışma durumu okunamadı. Lütfen daha sonra yeniden denetleyin.",
+      "maintenanceDeferred": "Oturum denetimleri geçici olarak kullanılamıyor. Geçmiş korundu ve bu bakım adımı atlandı."
     },
     "launchErrors": {
       "sessionRestoreFailed": "Oturum onarımı başarısız oldu ve yedek geri yükleme tamamlanmadı. Başlatma durduruldu; yeniden denemeden önce günlükleri ve yedekleri inceleyin.",
@@ -3188,7 +3225,7 @@
       "resetCreditStatusRedeemed": "Kullanıldı",
       "resetCreditStatusExpired": "Süresi doldu",
       "resetCreditStatusUnknown": "Bilinmiyor",
-      "resetCreditNextExpiry": "En yakın bitiş: {{time}}",
+      "resetCreditNextExpiry": "Sonraki sıfırlama son kullanımı {{time}}",
       "resetCreditDetailsTitle": "Sıfırlama ayrıntıları",
       "resetCreditNoRecords": "Sıfırlama kaydı yok",
       "resetCreditRecordsLoadFailed": "Sıfırlama kayıtları yüklenemedi: {{error}}",
@@ -3204,7 +3241,12 @@
       "codeReview": "Kod inceleme",
       "codeReviewShort": "İnceleme",
       "monthlyCreditsHint": "Kalan aylık kredi",
-      "monthlyCreditsInline": "Kredi: {{value}}"
+      "monthlyCreditsInline": "Kredi: {{value}}",
+      "resetCreditExpiryHours": "{{hours}} sa {{minutes}} dk",
+      "resetCreditExpiryMinutes": "{{minutes}} dk",
+      "resetCreditExpiryExpired": "Süresi doldu · ayrıntılar",
+      "resetCreditExpiryUrgent": "Yakında doluyor: {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Bitiş {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Kota hatası",
@@ -3631,13 +3673,13 @@
         "encryptedContentWarning": "Başka bir sağlayıcı veya hesap tarafından şifrelenmiş geçmiş algılandı. Meta veriler taşınabilir ancak bu oturumları sürdürme veya sıkıştırma başarısız olabilir; özgün sağlayıcıya/hesaba dönün ya da yeni oturum başlatın.",
         "modeHistory": "Düzenleme/dallanma",
         "modeHistoryDesc": "Geçersiz dizinlerden kaynaklanan mesaj düzenleme ve sohbet dallandırma hatalarını giderir.",
-        "historyStopHint": "Onarımdan önce seçilen istemciyi ve bu örneği kullanan CLI süreçlerini tamamen kapatın. Değişiklikleri yine de önizleyebilirsiniz.",
-        "historyDescription": "Seçilen sohbetleri ve kaynak geçmişini denetler; yalnızca geçersiz sayfalama dizinlerini sıfırlar. Sohbet kayıtları, hesaplar ve Provider değişmez. Başlatmadan önce hedef istemciyi ve ilgili CLI süreçlerini kapatın.",
+        "historyLiveHint": "İstemci çalışırken onarım yapabilirsiniz. Ardından istemciyi yeniden başlatıp sohbetleri tekrar açın.",
+        "historyDescription": "Seçilen sohbetleri ve kaynak geçmişlerini denetleyip yalnızca geçersiz sayfalama dizinlerini sıfırlar. Mesajlar, hesaplar ve Provider ayarları değişmez. Onarım istemci açıkken yapılabilir; dizinleri yeniden yüklemek için ardından istemciyi yeniden başlatın.",
         "historyPreview": "Yeniden oluşturulabilecek {{count}} geçersiz geçmiş dizini bulundu. Sohbet kayıtları değişmez.",
-        "historySuccess": "{{count}} geçersiz geçmiş dizini sıfırlandı. Yeniden oluşturmak için istemciyi ve sohbetleri tekrar açın. Yedekler korundu.",
+        "historySuccess": "{{count}} geçersiz geçmiş dizini sıfırlandı. Yeniden oluşturmak için istemciyi yeniden başlatıp sohbetleri tekrar açın. Yedekler korundu.",
         "historyNoChanges": "Güvenle yeniden oluşturulabilecek geçersiz geçmiş dizini bulunamadı.",
         "historyFailed": "Geçmiş dizini onarımı tamamlanamadı: {{error}}",
-        "historyRunning": "Hedef istemciyi ve bu örneği kullanan CLI süreçlerini tamamen kapatıp tekrar deneyin.",
+        "historyChanged": "Onarım sırasında sohbet verileri değişti. Bu onarım uygulanmadı. Biraz sonra yeniden deneyin.",
         "historyScan": "Geçmiş dizinleri denetleniyor ({{current}}/{{total}})…",
         "historyReset": "Geçersiz dizinler yedekleniyor ve sıfırlanıyor…"
       },
@@ -5892,6 +5934,22 @@
       "label": "Etkin kota eşitleme",
       "description": "API hizmetini başlatmak gerekmez. Etkin yerel hesaplar 5–30 saniyede bir yenilenir; oturum dosyası değişiklikleri ek sorgu başlatır. Yalnızca güncel dosya bilgileri incelenir, konuşma içeriği okunmaz. Hesap istisnaları, plan filtreleri ve grup kuralları korunur. Varsayılan olarak kapalıdır.",
       "error": "Ayar yüklenemedi veya kaydedilemedi. Yeniden deneyin."
+    },
+    "pathRecovery": {
+      "title": "Codex başlatma yolunu ayarla",
+      "description": "Kullanılabilir bir Codex istemci yolu bulunamadı. Uygulamayı seçin veya Codex'i elle açıp algılamayı başlatın.",
+      "reload": "Yeniden yükle",
+      "timeout": "İşlem zaman aşımına uğradı. Yeniden deneyin; başlatma otomatik olarak sürdürülmeyecek.",
+      "noCandidates": "Codex algılanamadı. İstemciyi elle açıp yeniden algılayın veya yolunu seçin.",
+      "pathRequired": "Codex istemcisinin yolunu seçin veya girin.",
+      "invalidPath": "Bu yol geçerli bir Codex masaüstü istemcisine ait değil. Uygulamayı yeniden seçin.",
+      "candidates": "Algılanan uygulamalar",
+      "autoLaunchHint": "Masaüstü uygulamasını başlatmadan hesap değiştirmek için bu seçeneği kapatın. Uygulamayı yine elle başlatabilirsiniz.",
+      "manualLaunchHint": "Otomatik başlatmayı kapatmak bu elle başlatmayı tamamlamaz. Yalnızca ayarları kaydetmek bu başlatma denemesini iptal eder.",
+      "saveAndRetry": "Kaydet ve tekrar dene",
+      "saveWithoutLaunch": "Kaydet ve devam et",
+      "saveOnly": "Yalnızca kaydet",
+      "validationBusy": "Önceki yolun denetimi hâlâ sürüyor. Lütfen biraz sonra yeniden deneyin."
     }
   },
   "githubCopilot": {

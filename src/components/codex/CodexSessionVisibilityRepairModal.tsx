@@ -314,7 +314,6 @@ export function CodexSessionVisibilityRepairModal({
     (!isHistoryRepair && !selectedProvider) ||
     (effectiveScope === "selected" && uniqueSelectedSessionIds.length === 0);
   const hasRunningRepairTarget = useMemo(() => {
-    if (selectedMode !== "deep" && selectedMode !== "history") return false;
     if (selectedInstanceScope === "all") {
       return repairInstances.some((instance) => instance.running);
     }
@@ -325,9 +324,9 @@ export function CodexSessionVisibilityRepairModal({
     repairInstances,
     selectedInstanceId,
     selectedInstanceScope,
-    selectedMode,
   ]);
-  const repairDisabled = startDisabled || hasRunningRepairTarget;
+  const repairRequiresStop = selectedMode === "deep" && hasRunningRepairTarget;
+  const repairDisabled = startDisabled || repairRequiresStop;
   const hasPreview = previewSummary !== null;
 
   useEffect(() => {
@@ -596,11 +595,9 @@ export function CodexSessionVisibilityRepairModal({
 
   const handleRepair = useCallback(async () => {
     if (startDisabled) return;
-    if (hasRunningRepairTarget) {
+    if (repairRequiresStop) {
       setError(
-        t(isHistoryRepair
-          ? "codex.sessionManager.repairModal.historyRunning"
-          : "codex.sessionManager.repairModal.stopInstanceHint"),
+        t("codex.sessionManager.repairModal.stopInstanceHint"),
       );
       return;
     }
@@ -654,7 +651,7 @@ export function CodexSessionVisibilityRepairModal({
     }
   }, [
     buildRepairOptions,
-    hasRunningRepairTarget,
+    repairRequiresStop,
     isHistoryRepair,
     onRepaired,
     onRunningChange,
@@ -958,11 +955,11 @@ export function CodexSessionVisibilityRepairModal({
           {running && (
             <CodexSessionVisibilityRepairProgressView progress={progress} />
           )}
-          {hasRunningRepairTarget && !running && (
+          {(isHistoryRepair || selectedMode === "deep") && hasRunningRepairTarget && !running && (
             <div className="codex-api-switch-notice-repair-status is-warning">
               <span>
                 {isHistoryRepair
-                  ? t("codex.sessionManager.repairModal.historyStopHint")
+                  ? t("codex.sessionManager.repairModal.historyLiveHint")
                   : t(
                       "codex.sessionManager.repairModal.stopInstanceHint",
                       "完整修复前请先完全退出所选 Codex App/ChatGPT 实例；仍可先预览变更。",

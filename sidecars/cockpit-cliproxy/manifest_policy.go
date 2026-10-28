@@ -963,7 +963,12 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 		if input.status == clientClosedRequestStatus {
 			// Earlier failed attempts do not change the final downstream cause.
 			payload.ErrorCategory = "client_canceled"
-			payload.ErrorMessage = strings.TrimSpace(input.errorMessage)
+			// Older hosts otherwise treat bare "context canceled" as an
+			// upstream timeout and restart every concurrent request's Sidecar.
+			payload.ErrorMessage = "client canceled"
+			if detail := strings.TrimSpace(input.errorMessage); detail != "" {
+				payload.ErrorMessage += ": " + detail
+			}
 		} else if strings.TrimSpace(payload.ErrorCategory) == "" {
 			payload.ErrorCategory = errorCategory(input.status, input.errorMessage, false)
 		}
@@ -1796,7 +1801,7 @@ func buildOllamaShowResponse(model string, modifiedAt time.Time) gin.H {
 
 func ollamaModelFamily(model string) string {
 	normalized := strings.ToLower(strings.TrimSpace(model))
-	for _, prefix := range []string{"gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-oss", "codex"} {
+	for _, prefix := range []string{"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-oss", "codex"} {
 		if strings.HasPrefix(normalized, prefix) {
 			return prefix
 		}
@@ -1813,6 +1818,14 @@ func ollamaModelFamily(model string) string {
 }
 
 func ollamaContextLength(model string) int {
+	if strings.HasPrefix(model, "gpt-6.1-terra") {
+		if template, found := registry.GetCodexModelContextTemplate("gpt-6.1-terra"); found {
+			return template.ContextWindow
+		}
+		if template, found := registry.GetCodexModelContextTemplate("gpt-6-luna"); found {
+			return template.ContextWindow
+		}
+	}
 	if template, found := registry.GetCodexModelContextTemplate(model); found {
 		return template.ContextWindow
 	}
@@ -1870,7 +1883,7 @@ func ollamaReasoningEfforts(model string) []string {
 	case strings.HasPrefix(model, "gpt-6.1-sol"), strings.HasPrefix(model, "gpt-6-astra"), strings.HasPrefix(model, "gpt-6-sol"):
 		return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
 	// Luna 家族没有 ultra 档位，不要跟着上面一起放宽。
-	case strings.HasPrefix(model, "gpt-6-luna"):
+	case strings.HasPrefix(model, "gpt-6-luna"), strings.HasPrefix(model, "gpt-6.1-terra"):
 		return []string{"low", "medium", "high", "xhigh", "max"}
 	case strings.HasPrefix(model, "gpt-5.6-sol"), strings.HasPrefix(model, "gpt-5.6-terra"):
 		return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
@@ -2224,6 +2237,8 @@ func officialAutomaticModelDisplayName(slug string) string {
 	switch strings.ToLower(strings.TrimSpace(slug)) {
 	case "gpt-6.1-sol":
 		return "GPT-6.1 Sol"
+	case "gpt-6.1-terra":
+		return "GPT-6.1 Terra"
 	case "gpt-6-astra":
 		return "GPT-6 Astra"
 	case "gpt-6-sol":
@@ -2288,6 +2303,8 @@ func displayNameForModel(model string) string {
 		return "GPT-5.6 Luna"
 	case "gpt-6.1-sol":
 		return "GPT-6.1 Sol"
+	case "gpt-6.1-terra":
+		return "GPT-6.1 Terra"
 	case "gpt-6-astra":
 		return "GPT-6 Astra"
 	case "gpt-6-sol":
@@ -2641,6 +2658,7 @@ func canonicalModelForClientModel(m *manifest, spec *apiKeySpec, model string) s
 // 原始标记会直接落进正文，表现为「模型不能用工具」。
 var codexShellModelIDs = []string{
 	"gpt-6.1-sol",
+	"gpt-6.1-terra",
 	"gpt-6-astra",
 	"gpt-6-sol",
 	"gpt-6-luna",

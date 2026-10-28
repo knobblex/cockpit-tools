@@ -1638,6 +1638,35 @@
       "refreshed": "使用量を更新しました",
       "usage": "使用量",
       "tierOther": "その他"
+    },
+    "background": {
+      "title": "背景",
+      "description": "アプリの背景だけを変更します。アカウントカードや操作部分の外観は変わりません。",
+      "presets": "背景プリセット",
+      "default": "標準",
+      "mist": "霧青",
+      "forest": "森林",
+      "dusk": "夕暮れ",
+      "sand": "砂色",
+      "custom": "カスタム",
+      "chooseImage": "画像を選択",
+      "replaceImage": "画像を変更",
+      "imageHint": "JPG・PNG・WebP、最大10 MB。大きな画像は端末内で縮小します。",
+      "preview": "プレビュー",
+      "strength": "濃さ",
+      "blur": "ぼかし",
+      "pixels": "{{count}} ピクセル",
+      "position": "画像の位置",
+      "center": "中央",
+      "top": "上",
+      "bottom": "下",
+      "localHint": "変更はすぐに反映され、この端末に自動保存されます。画像は送信されません。標準に戻すと保存画像を削除します。",
+      "restore": "標準に戻す",
+      "imageType": "JPG・PNG・WebP画像を選んでください。",
+      "imageSize": "10 MB未満の画像を選んでください。",
+      "imageRead": "画像を読み込めません。別の画像をお試しください。",
+      "storage": "背景の読み込みまたは保存に失敗しました。保存済みの背景は保持されます。再試行してください。",
+      "saveFailed": "背景は表示されていますが、保存できませんでした。再試行してください。前回保存した背景は保持されます。"
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "週次枠",
       "windowHint": "実際の期間でしきい値を判定し、1週間以上は週次しきい値を使います。週次枠のみのアカウントはその枠だけを確認します。期間がない場合は主枠・副枠の対応を維持します。",
       "rule": "短期残量 <= {{shortCycle}}% または週次残量 <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "起動確認待ち",
+      "description": "起動を要求しましたが、クライアントの状態は未確認です。すでに開いている可能性があるため、再度の起動はお控えください。",
+      "check": "状態を確認",
+      "notRunning": "対象のインスタンスはまだ検出されていません。後でもう一度確認するか、この画面を閉じてから起動を再試行してください。",
+      "checkFailed": "実行状態を取得できません。後でもう一度確認してください。",
+      "maintenanceDeferred": "セッションを一時的に確認できません。履歴を保持し、今回のメンテナンスをスキップしました。"
     },
     "launchErrors": {
       "sessionRestoreFailed": "セッションの修復に失敗し、バックアップの復元が完了していません。起動を停止しました。再試行する前にログとバックアップを確認してください。",
@@ -3188,7 +3225,7 @@
       "resetCreditStatusRedeemed": "使用済み",
       "resetCreditStatusExpired": "期限切れ",
       "resetCreditStatusUnknown": "不明",
-      "resetCreditNextExpiry": "次の有効期限: {{time}}",
+      "resetCreditNextExpiry": "次のリセット有効期限 {{time}}",
       "resetCreditDetailsTitle": "リセット明細",
       "resetCreditNoRecords": "リセット記録はありません",
       "resetCreditRecordsLoadFailed": "リセット記録の読み込みに失敗しました: {{error}}",
@@ -3204,7 +3241,12 @@
       "codeReview": "コードレビュー",
       "codeReviewShort": "レビュー",
       "monthlyCreditsHint": "今月のクレジット残量",
-      "monthlyCreditsInline": "Credits：{{value}}"
+      "monthlyCreditsInline": "Credits：{{value}}",
+      "resetCreditExpiryHours": "{{hours}}時間{{minutes}}分",
+      "resetCreditExpiryMinutes": "{{minutes}}分",
+      "resetCreditExpiryExpired": "期限切れ · 詳細",
+      "resetCreditExpiryUrgent": "まもなく失効 {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "有効期限 {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "クォータエラー",
@@ -3631,13 +3673,13 @@
         "encryptedContentWarning": "別のプロバイダーまたはアカウントで暗号化された履歴が見つかりました。メタデータは移行できますが、そのセッションの継続や圧縮は失敗する可能性があります。元のプロバイダー/アカウントに戻すか、新しいセッションを開始してください。",
         "modeHistory": "編集・分岐の修復",
         "modeHistoryDesc": "インデックスの異常によるメッセージ編集や会話の分岐の失敗を修復します。",
-        "historyStopHint": "修復前に、対象のクライアントと同じインスタンスを使う CLI を完全に終了してください。変更のプレビューは可能です。",
-        "historyDescription": "選択したチャットと継承元の履歴を確認し、異常なページ分割インデックスだけを再構築します。チャット記録、アカウント、Provider は変更しません。実行前に対象のクライアントと関連する CLI を終了してください。",
+        "historyLiveHint": "クライアントの実行中でも修復できます。完了後、クライアントを再起動してチャットを開き直してください。",
+        "historyDescription": "選択したチャットと継承元の履歴を確認し、異常なページ分割インデックスのみをリセットします。チャット記録、アカウント、Provider 設定は変更しません。実行中も修復でき、完了後の再起動でインデックスを再読み込みします。",
         "historyPreview": "再構築可能な異常な履歴インデックスが {{count}} 件見つかりました。チャット記録は変更しません。",
-        "historySuccess": "異常な履歴インデックスを {{count}} 件リセットしました。クライアントとチャットを開き直して再構築してください。バックアップは保存されています。",
+        "historySuccess": "異常な履歴インデックスを {{count}} 件リセットしました。クライアントを再起動してチャットを開き直すと再構築されます。バックアップは保存されています。",
         "historyNoChanges": "安全に再構築できる異常な履歴インデックスは見つかりませんでした。",
         "historyFailed": "履歴インデックスの修復が完了しませんでした：{{error}}",
-        "historyRunning": "対象のクライアントと同じインスタンスを使う CLI を完全に終了してから、再試行してください。",
+        "historyChanged": "修復中にチャットデータが変更されました。今回の修復は適用していません。少し待って再試行してください。",
         "historyScan": "履歴インデックスを確認中（{{current}}/{{total}}）…",
         "historyReset": "異常なインデックスをバックアップしてリセット中…"
       },
@@ -5892,6 +5934,22 @@
       "label": "使用中の残量を同期",
       "description": "API サービスの起動は不要です。使用中のローカルアカウントを 5～30 秒間隔で更新し、セッションファイルの変更時に再確認します。最近のファイル情報のみを確認し、会話内容は読みません。アカウント除外、プラン、グループ設定を維持します。既定はオフです。",
       "error": "設定の読み込みまたは保存に失敗しました。再試行してください。"
+    },
+    "pathRecovery": {
+      "title": "Codex の起動パスを設定",
+      "description": "利用可能な Codex クライアントのパスが見つかりません。アプリを選択するか、Codex を手動で開いてから検出してください。",
+      "reload": "再読み込み",
+      "timeout": "操作がタイムアウトしました。もう一度お試しください。起動は自動的に再開されません。",
+      "noCandidates": "Codex が検出されませんでした。クライアントを手動で開いて再検出するか、パスを選択してください。",
+      "pathRequired": "Codex クライアントのパスを選択または入力してください。",
+      "invalidPath": "有効な Codex デスクトップクライアントのパスではありません。アプリを選び直してください。",
+      "candidates": "検出結果",
+      "autoLaunchHint": "デスクトップアプリを起動せずにアカウントだけを切り替える場合は、オフにしてください。手動での起動は引き続き可能です。",
+      "manualLaunchHint": "自動起動をオフにしても、今回の手動起動は完了しません。設定のみ保存すると、今回の起動を取り消します。",
+      "saveAndRetry": "保存して再試行",
+      "saveWithoutLaunch": "保存して続行",
+      "saveOnly": "設定のみ保存",
+      "validationBusy": "前のパスを確認中です。しばらくしてから再試行してください。"
     }
   },
   "githubCopilot": {

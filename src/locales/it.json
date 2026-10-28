@@ -1638,6 +1638,35 @@
       "refreshed": "Utilizzo aggiornato",
       "usage": "Utilizzo",
       "tierOther": "Altro"
+    },
+    "background": {
+      "title": "Sfondo",
+      "description": "Modifica solo lo sfondo dell’app. Le schede degli account e i controlli mantengono il loro aspetto.",
+      "presets": "Sfondi predefiniti",
+      "default": "Predefinito",
+      "mist": "Nebbia",
+      "forest": "Foresta",
+      "dusk": "Tramonto",
+      "sand": "Sabbia",
+      "custom": "Personale",
+      "chooseImage": "Scegli immagine",
+      "replaceImage": "Cambia immagine",
+      "imageHint": "JPG, PNG o WebP, massimo 10 MB. Le immagini grandi vengono ridotte localmente.",
+      "preview": "Anteprima",
+      "strength": "Intensità",
+      "blur": "Sfocatura",
+      "pixels": "{{count}} pixel",
+      "position": "Posizione",
+      "center": "Centro",
+      "top": "Alto",
+      "bottom": "Basso",
+      "localHint": "Le modifiche si applicano subito e si salvano automaticamente su questo dispositivo. Le immagini non vengono caricate. Ripristina rimuove l’immagine salvata.",
+      "restore": "Ripristina",
+      "imageType": "Scegli un’immagine JPG, PNG o WebP.",
+      "imageSize": "Scegli un’immagine inferiore a 10 MB.",
+      "imageRead": "Impossibile leggere l’immagine. Prova un altro file.",
+      "storage": "Impossibile caricare o salvare lo sfondo. Riprova; lo sfondo precedente viene conservato.",
+      "saveFailed": "Lo sfondo è visibile ma non è stato salvato. Riprova; lo sfondo salvato in precedenza viene conservato."
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "Quota settimanale",
       "windowHint": "Le soglie seguono la durata effettiva: una settimana o più usa la soglia settimanale. Gli account con sola quota settimanale verificano solo quella. Senza durata resta la corrispondenza tra finestra principale e secondaria.",
       "rule": "Residuo breve <= {{shortCycle}}% o settimanale <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "Avvio da confermare",
+      "description": "L’avvio è stato richiesto, ma lo stato del client non è confermato. Potrebbe essere già aperto. Evita di avviarlo di nuovo.",
+      "check": "Verifica stato",
+      "notRunning": "L’istanza di destinazione non è stata ancora rilevata. Ricontrolla più tardi o chiudi questa finestra prima di riprovare l’avvio.",
+      "checkFailed": "Impossibile leggere lo stato di esecuzione. Riprova a verificare più tardi.",
+      "maintenanceDeferred": "Il controllo delle sessioni è temporaneamente indisponibile. La cronologia è stata conservata e questo passaggio di manutenzione è stato saltato."
     },
     "launchErrors": {
       "sessionRestoreFailed": "Riparazione delle sessioni non riuscita e ripristino incompleto. Avvio interrotto; controlla registri e backup prima di riprovare.",
@@ -3188,7 +3225,7 @@
       "resetCreditStatusRedeemed": "Usata",
       "resetCreditStatusExpired": "Scaduta",
       "resetCreditStatusUnknown": "Sconosciuta",
-      "resetCreditNextExpiry": "Prossima scadenza: {{time}}",
+      "resetCreditNextExpiry": "Prossima scadenza del ripristino {{time}}",
       "resetCreditDetailsTitle": "Dettagli reimpostazioni",
       "resetCreditNoRecords": "Nessun record di ripristino",
       "resetCreditRecordsLoadFailed": "Impossibile caricare i record di ripristino: {{error}}",
@@ -3204,7 +3241,12 @@
       "codeReview": "Revisione codice",
       "codeReviewShort": "Revisione",
       "monthlyCreditsHint": "Crediti mensili rimanenti",
-      "monthlyCreditsInline": "Crediti: {{value}}"
+      "monthlyCreditsInline": "Crediti: {{value}}",
+      "resetCreditExpiryHours": "{{hours}} h {{minutes}} min",
+      "resetCreditExpiryMinutes": "{{minutes}} min",
+      "resetCreditExpiryExpired": "Scaduto · dettagli",
+      "resetCreditExpiryUrgent": "Scade presto: {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Scade {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Errore quota",
@@ -3631,13 +3673,13 @@
         "encryptedContentWarning": "È stata rilevata cronologia cifrata da un altro provider o account. I metadati possono essere migrati, ma continuare o compattare tali sessioni potrebbe non riuscire; torna al provider/account originale o avvia una nuova sessione.",
         "modeHistory": "Modifica/rami",
         "modeHistoryDesc": "Corregge gli errori di modifica dei messaggi e creazione di diramazioni dovuti a indici non validi.",
-        "historyStopHint": "Prima della riparazione chiudi completamente il client selezionato e le CLI che usano questa istanza. L’anteprima resta disponibile.",
-        "historyDescription": "Controlla le chat selezionate e la cronologia di origine; reimposta solo gli indici paginati non validi. Messaggi, account e Provider restano invariati. Chiudi il client di destinazione e le CLI associate prima di procedere.",
+        "historyLiveHint": "Puoi riparare mentre il client è aperto. Poi riavvia il client e riapri le chat.",
+        "historyDescription": "Controlla le chat selezionate e la cronologia di origine, reimpostando solo gli indici di paginazione non validi. Messaggi, account e impostazioni Provider restano invariati. La riparazione funziona con il client aperto; riavvialo poi per ricaricare gli indici.",
         "historyPreview": "Trovati {{count}} indici di cronologia non validi ricostruibili. I messaggi restano invariati.",
-        "historySuccess": "Reimpostati {{count}} indici di cronologia non validi. Riapri il client e le chat per ricostruirli. I backup sono stati conservati.",
+        "historySuccess": "Reimpostati {{count}} indici di cronologia non validi. Riavvia il client e riapri le chat per ricostruirli. I backup sono stati conservati.",
         "historyNoChanges": "Nessun indice di cronologia non valido può essere ricostruito in sicurezza.",
         "historyFailed": "Riparazione degli indici di cronologia non completata: {{error}}",
-        "historyRunning": "Chiudi completamente il client di destinazione e le CLI che usano questa istanza, quindi riprova.",
+        "historyChanged": "I dati della chat sono cambiati durante la riparazione. Questa riparazione non è stata applicata. Riprova tra poco.",
         "historyScan": "Controllo degli indici di cronologia ({{current}}/{{total}})…",
         "historyReset": "Backup e reimpostazione degli indici non validi…"
       },
@@ -5892,6 +5934,22 @@
       "label": "Sincronizza quota attiva",
       "description": "Senza servizio API. Gli account locali attivi si aggiornano ogni 5–30 secondi; le modifiche ai file di sessione attivano nuove verifiche. Vengono letti solo i metadati recenti, non le conversazioni. Restano validi esclusioni, filtri del piano e regole dei gruppi. Disattivato per impostazione predefinita.",
       "error": "Impossibile caricare o salvare l’impostazione. Riprova."
+    },
+    "pathRecovery": {
+      "title": "Imposta il percorso di Codex",
+      "description": "Nessun percorso utilizzabile per il client Codex. Seleziona l’app oppure apri Codex manualmente e avvia il rilevamento.",
+      "reload": "Ricarica",
+      "timeout": "Tempo massimo dell’operazione superato. Riprova: l’avvio non continuerà automaticamente.",
+      "noCandidates": "Codex non è stato rilevato. Apri il client manualmente e riprova, oppure seleziona il percorso.",
+      "pathRequired": "Seleziona o inserisci il percorso del client Codex.",
+      "invalidPath": "Questo percorso non corrisponde a un client desktop Codex valido. Seleziona di nuovo l’app.",
+      "candidates": "App rilevate",
+      "autoLaunchHint": "Disattiva questa opzione per cambiare account senza avviare l’app desktop. Potrai comunque avviarla manualmente.",
+      "manualLaunchHint": "Disattivare l’avvio automatico non completa questo avvio manuale. Salvare solo le impostazioni annulla questo tentativo.",
+      "saveAndRetry": "Salva e riprova",
+      "saveWithoutLaunch": "Salva e continua",
+      "saveOnly": "Salva soltanto",
+      "validationBusy": "Il controllo del percorso precedente è ancora in corso. Riprova tra poco."
     }
   },
   "githubCopilot": {

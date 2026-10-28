@@ -1,4 +1,5 @@
 import { resolveCodexAccountDisplayName } from "../../utils/codexAccountDisplayName";
+import { isCodexLaunchCancelled } from '../../utils/codexLaunchCancellation';
 import {
   ArrowRight,
   BarChart3,
@@ -948,6 +949,7 @@ export function CodexLaunchPreviewModal({
           await onExecute(launchAfterSwitch, launchOptions);
         }
       } catch (executeError) {
+        if (isCodexLaunchCancelled(executeError)) return;
         const message = String(executeError).replace(/^Error:\s*/, "");
         setError(message.startsWith("codex.localAccess.") ? t(message) : message);
       } finally {
@@ -1471,7 +1473,9 @@ export function CodexLaunchPreviewModal({
       try {
         await action.onAction();
       } catch (actionError) {
-        setError(String(actionError).replace(/^Error:\s*/, ""));
+        if (!isCodexLaunchCancelled(actionError)) {
+          setError(String(actionError).replace(/^Error:\s*/, ""));
+        }
       } finally {
         setRunningActionId(null);
       }

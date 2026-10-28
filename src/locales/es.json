@@ -1638,6 +1638,35 @@
       "refreshed": "Uso actualizado",
       "usage": "Uso",
       "tierOther": "Otro"
+    },
+    "background": {
+      "title": "Fondo",
+      "description": "Cambia solo el fondo de la aplicación. Las tarjetas de cuenta y los controles conservan su aspecto.",
+      "presets": "Fondos predefinidos",
+      "default": "Predeterminado",
+      "mist": "Niebla",
+      "forest": "Bosque",
+      "dusk": "Ocaso",
+      "sand": "Arena",
+      "custom": "Personal",
+      "chooseImage": "Elegir imagen",
+      "replaceImage": "Cambiar imagen",
+      "imageHint": "JPG, PNG o WebP, hasta 10 MB. Las imágenes grandes se reducen localmente.",
+      "preview": "Vista previa",
+      "strength": "Intensidad",
+      "blur": "Desenfoque",
+      "pixels": "{{count}} píxeles",
+      "position": "Posición",
+      "center": "Centro",
+      "top": "Arriba",
+      "bottom": "Abajo",
+      "localHint": "Los cambios se aplican al instante y se guardan automáticamente en este dispositivo. Las imágenes no se suben. Restaurar elimina la imagen guardada.",
+      "restore": "Restaurar",
+      "imageType": "Elige una imagen JPG, PNG o WebP.",
+      "imageSize": "Elige una imagen de menos de 10 MB.",
+      "imageRead": "No se pudo leer la imagen. Prueba otro archivo.",
+      "storage": "No se pudo cargar o guardar el fondo. Reinténtalo; el fondo anterior se conserva.",
+      "saveFailed": "El fondo se muestra, pero no se pudo guardar. Reinténtalo; se conserva el fondo guardado anteriormente."
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "Cuota semanal",
       "windowHint": "Los umbrales siguen la duración real: una semana o más usa el semanal. Las cuentas con solo cuota semanal comprueban únicamente esa cuota. Sin duración se conserva la asignación de ventana principal y secundaria.",
       "rule": "Restante corto <= {{shortCycle}}% o semanal <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "Inicio sin confirmar",
+      "description": "Se solicitó el inicio, pero el estado del cliente aún no está confirmado. Puede que ya esté abierto. Evita iniciarlo de nuevo.",
+      "check": "Verificar estado",
+      "notRunning": "Aún no se ha detectado la instancia de destino. Comprueba más tarde o cierra este diálogo antes de volver a iniciarla.",
+      "checkFailed": "No se pudo consultar el estado de ejecución. Vuelve a comprobarlo más tarde.",
+      "maintenanceDeferred": "La comprobación de sesiones no está disponible temporalmente. Se conservó el historial y se omitió este paso de mantenimiento."
     },
     "launchErrors": {
       "sessionRestoreFailed": "Falló la reparación de sesiones y la restauración está incompleta. Inicio detenido; revisa los registros y las copias de seguridad antes de reintentar.",
@@ -3188,7 +3225,7 @@
       "resetCreditStatusRedeemed": "Usado",
       "resetCreditStatusExpired": "Vencido",
       "resetCreditStatusUnknown": "Desconocido",
-      "resetCreditNextExpiry": "Próximo vencimiento: {{time}}",
+      "resetCreditNextExpiry": "Próximo vencimiento del restablecimiento {{time}}",
       "resetCreditDetailsTitle": "Detalles de reinicios",
       "resetCreditNoRecords": "Sin registros de reinicio",
       "resetCreditRecordsLoadFailed": "No se pudieron cargar los registros de reinicio: {{error}}",
@@ -3204,7 +3241,12 @@
       "codeReview": "Revisión de código",
       "codeReviewShort": "Revisión",
       "monthlyCreditsHint": "Créditos mensuales restantes",
-      "monthlyCreditsInline": "Créditos: {{value}}"
+      "monthlyCreditsInline": "Créditos: {{value}}",
+      "resetCreditExpiryHours": "{{hours}} h {{minutes}} min",
+      "resetCreditExpiryMinutes": "{{minutes}} min",
+      "resetCreditExpiryExpired": "Caducado · ver detalles",
+      "resetCreditExpiryUrgent": "Caduca pronto: {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Caduca {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Error de cuota",
@@ -3631,13 +3673,13 @@
         "encryptedContentWarning": "Se detectó historial cifrado por otro proveedor o cuenta. Los metadatos se pueden migrar, pero continuar o compactar esas sesiones puede fallar; vuelve al proveedor/cuenta original o inicia una sesión nueva.",
         "modeHistory": "Edición/ramas",
         "modeHistoryDesc": "Corrige fallos al editar mensajes y ramificar chats causados por índices no válidos.",
-        "historyStopHint": "Cierra por completo el cliente seleccionado y las CLI que usan esa instancia antes de reparar. Puedes previsualizar los cambios.",
-        "historyDescription": "Revisar los chats seleccionados y su historial de origen; restablecer solo los índices paginados incorrectos. Los mensajes, cuentas y Provider no cambian. Cierra el cliente de destino y las CLI relacionadas antes de ejecutar.",
+        "historyLiveHint": "Puedes reparar con el cliente abierto. Después, reinicia el cliente y vuelve a abrir los chats.",
+        "historyDescription": "Comprueba los chats seleccionados y su historial de origen y restablece solo los índices de paginación no válidos. Los mensajes, cuentas y ajustes de Provider no cambian. Puedes reparar con el cliente abierto; reinícialo después para recargar los índices.",
         "historyPreview": "Se encontraron {{count}} índices de historial incorrectos que pueden reconstruirse. Los mensajes no cambian.",
-        "historySuccess": "Se restablecieron {{count}} índices de historial incorrectos. Vuelve a abrir el cliente y los chats para reconstruirlos. Se conservaron las copias de seguridad.",
+        "historySuccess": "Se restablecieron {{count}} índices de historial no válidos. Reinicia el cliente y vuelve a abrir los chats para reconstruirlos. Se conservaron las copias de seguridad.",
         "historyNoChanges": "No se encontraron índices de historial incorrectos que puedan reconstruirse de forma segura.",
         "historyFailed": "La reparación de los índices de historial no se completó: {{error}}",
-        "historyRunning": "Cierra por completo el cliente de destino y las CLI que usan esta instancia y vuelve a intentarlo.",
+        "historyChanged": "Los datos del chat cambiaron durante la reparación. Esta reparación no se aplicó. Vuelve a intentarlo en unos instantes.",
         "historyScan": "Revisando índices de historial ({{current}}/{{total}})…",
         "historyReset": "Guardando copias y restableciendo índices incorrectos…"
       },
@@ -5892,6 +5934,22 @@
       "label": "Sincronizar cuota activa",
       "description": "Sin iniciar el servicio API. Las cuentas locales activas se actualizan cada 5–30 segundos; los cambios en archivos de sesión activan comprobaciones. Solo se revisan metadatos recientes, sin leer conversaciones. Se mantienen las exclusiones, los filtros de plan y las reglas de grupo. Desactivado por defecto.",
       "error": "No se pudo cargar o guardar el ajuste. Inténtalo de nuevo."
+    },
+    "pathRecovery": {
+      "title": "Configurar ruta de Codex",
+      "description": "No se encontró una ruta válida al cliente Codex. Selecciona la aplicación o abre Codex manualmente y detéctalo.",
+      "reload": "Volver a cargar",
+      "timeout": "La operación agotó el tiempo de espera. Reinténtalo; el inicio no continuará automáticamente.",
+      "noCandidates": "No se detectó Codex. Abre el cliente manualmente y vuelve a detectarlo, o selecciona su ruta.",
+      "pathRequired": "Selecciona o introduce la ruta del cliente Codex.",
+      "invalidPath": "Esta ruta no corresponde a un cliente de escritorio Codex válido. Selecciona de nuevo la aplicación.",
+      "candidates": "Aplicaciones detectadas",
+      "autoLaunchHint": "Desactiva esta opción para cambiar de cuenta sin iniciar la aplicación de escritorio. Podrás seguir abriéndola manualmente.",
+      "manualLaunchHint": "Desactivar el inicio automático no completa este inicio manual. Guardar solo los ajustes cancela este intento de inicio.",
+      "saveAndRetry": "Guardar y reintentar",
+      "saveWithoutLaunch": "Guardar y continuar",
+      "saveOnly": "Solo guardar",
+      "validationBusy": "La comprobación de la ruta anterior sigue en curso. Inténtalo de nuevo en unos instantes."
     }
   },
   "githubCopilot": {

@@ -1638,6 +1638,35 @@
       "refreshed": "Uso atualizado",
       "usage": "Uso",
       "tierOther": "Outro"
+    },
+    "background": {
+      "title": "Fundo",
+      "description": "Altera apenas o fundo do aplicativo. Cartões de contas e controles mantêm a aparência atual.",
+      "presets": "Fundos predefinidos",
+      "default": "Padrão",
+      "mist": "Névoa",
+      "forest": "Floresta",
+      "dusk": "Entardecer",
+      "sand": "Areia",
+      "custom": "Pessoal",
+      "chooseImage": "Escolher imagem",
+      "replaceImage": "Trocar imagem",
+      "imageHint": "JPG, PNG ou WebP, até 10 MB. Imagens grandes são reduzidas localmente.",
+      "preview": "Prévia",
+      "strength": "Intensidade",
+      "blur": "Desfoque",
+      "pixels": "{{count}} píxeis",
+      "position": "Posição",
+      "center": "Centro",
+      "top": "Topo",
+      "bottom": "Base",
+      "localHint": "As alterações são aplicadas na hora e salvas automaticamente neste dispositivo. As imagens não são enviadas. Restaurar remove a imagem salva.",
+      "restore": "Restaurar",
+      "imageType": "Escolha uma imagem JPG, PNG ou WebP.",
+      "imageSize": "Escolha uma imagem menor que 10 MB.",
+      "imageRead": "Não foi possível ler a imagem. Tente outro arquivo.",
+      "storage": "Não foi possível carregar ou salvar o fundo. Tente novamente; o fundo anterior será mantido.",
+      "saveFailed": "O fundo está sendo exibido, mas não foi salvo. Tente novamente; o fundo salvo anteriormente será mantido."
     }
   },
   "appPath": {
@@ -2362,6 +2391,14 @@
       "weekly": "Cota semanal",
       "windowHint": "Os limites seguem a duração real: uma semana ou mais usa o limite semanal. Contas com apenas cota semanal verificam somente essa cota. Sem duração, mantém-se o mapeamento das janelas principal e secundária.",
       "rule": "Saldo curto <= {{shortCycle}}% ou semanal <= {{weekly}}%"
+    },
+    "launchConfirmation": {
+      "title": "Início não confirmado",
+      "description": "A inicialização foi solicitada, mas o estado do cliente ainda não foi confirmado. Ele pode já estar aberto. Evite iniciá-lo novamente.",
+      "check": "Verificar estado",
+      "notRunning": "A instância de destino ainda não foi detectada. Verifique mais tarde ou feche esta janela antes de tentar iniciar novamente.",
+      "checkFailed": "Não foi possível consultar o estado de execução. Verifique novamente mais tarde.",
+      "maintenanceDeferred": "A verificação de sessões está temporariamente indisponível. O histórico foi preservado e esta etapa de manutenção foi ignorada."
     },
     "launchErrors": {
       "sessionRestoreFailed": "A reparação das sessões falhou e a restauração está incompleta. Inicialização interrompida; verifique os logs e backups antes de tentar novamente.",
@@ -3188,7 +3225,7 @@
       "resetCreditStatusRedeemed": "Usada",
       "resetCreditStatusExpired": "Expirada",
       "resetCreditStatusUnknown": "Desconhecida",
-      "resetCreditNextExpiry": "Próximo vencimento: {{time}}",
+      "resetCreditNextExpiry": "Próximo vencimento da redefinição {{time}}",
       "resetCreditDetailsTitle": "Detalhes das redefinições",
       "resetCreditNoRecords": "Sem registros de redefinição",
       "resetCreditRecordsLoadFailed": "Falha ao carregar registros de redefinição: {{error}}",
@@ -3204,7 +3241,12 @@
       "codeReview": "Revisão de código",
       "codeReviewShort": "Revisão",
       "monthlyCreditsHint": "Créditos mensais restantes",
-      "monthlyCreditsInline": "Créditos: {{value}}"
+      "monthlyCreditsInline": "Créditos: {{value}}",
+      "resetCreditExpiryHours": "{{hours}} h {{minutes}} min",
+      "resetCreditExpiryMinutes": "{{minutes}} min",
+      "resetCreditExpiryExpired": "Expirado · detalhes",
+      "resetCreditExpiryUrgent": "Expira em breve: {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Expira {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Erro de cota",
@@ -3631,13 +3673,13 @@
         "encryptedContentWarning": "Foi detectado histórico criptografado por outro provedor ou conta. Os metadados podem ser migrados, mas continuar ou compactar essas sessões ainda pode falhar; volte ao provedor/conta original ou inicie uma nova sessão.",
         "modeHistory": "Edição/ramificações",
         "modeHistoryDesc": "Corrige falhas ao editar mensagens e ramificar chats causadas por índices inválidos.",
-        "historyStopHint": "Feche completamente o cliente selecionado e as CLI que usam essa instância antes do reparo. A prévia continua disponível.",
-        "historyDescription": "Verifica as conversas selecionadas e seu histórico de origem; redefine apenas os índices paginados inválidos. Mensagens, contas e Provider permanecem intactos. Feche o cliente de destino e as CLI relacionadas antes de executar.",
+        "historyLiveHint": "Você pode reparar com o cliente aberto. Depois, reinicie o cliente e reabra as conversas.",
+        "historyDescription": "Verifica as conversas selecionadas e seu histórico de origem, redefinindo apenas os índices de paginação inválidos. Mensagens, contas e configurações de Provider permanecem intactas. O reparo funciona com o cliente aberto; reinicie-o depois para recarregar os índices.",
         "historyPreview": "Foram encontrados {{count}} índices de histórico inválidos que podem ser reconstruídos. As mensagens permanecem intactas.",
-        "historySuccess": "Foram redefinidos {{count}} índices de histórico inválidos. Reabra o cliente e as conversas para reconstruí-los. Os backups foram mantidos.",
+        "historySuccess": "Foram redefinidos {{count}} índices de histórico inválidos. Reinicie o cliente e reabra as conversas para reconstruí-los. Os backups foram mantidos.",
         "historyNoChanges": "Nenhum índice de histórico inválido pode ser reconstruído com segurança.",
         "historyFailed": "O reparo dos índices de histórico não foi concluído: {{error}}",
-        "historyRunning": "Feche completamente o cliente de destino e as CLI que usam esta instância e tente novamente.",
+        "historyChanged": "Os dados da conversa mudaram durante o reparo. Este reparo não foi aplicado. Tente novamente em instantes.",
         "historyScan": "Verificando índices de histórico ({{current}}/{{total}})…",
         "historyReset": "Criando backups e redefinindo índices inválidos…"
       },
@@ -5892,6 +5934,22 @@
       "label": "Sincronizar cota ativa",
       "description": "Sem iniciar o serviço API. Contas locais ativas são atualizadas a cada 5–30 segundos; mudanças nos arquivos de sessão acionam novas consultas. Apenas metadados recentes são verificados, sem ler conversas. Exclusões de contas, filtros de plano e regras de grupo continuam válidos. Desativado por padrão.",
       "error": "Não foi possível carregar ou salvar a configuração. Tente novamente."
+    },
+    "pathRecovery": {
+      "title": "Definir caminho do Codex",
+      "description": "Nenhum caminho utilizável para o cliente Codex foi encontrado. Selecione o aplicativo ou abra o Codex manualmente e faça a detecção.",
+      "reload": "Recarregar",
+      "timeout": "O tempo da operação se esgotou. Tente novamente; a inicialização não continuará automaticamente.",
+      "noCandidates": "Codex não foi detectado. Abra o cliente manualmente e tente detectar novamente, ou selecione o caminho.",
+      "pathRequired": "Selecione ou informe o caminho do cliente Codex.",
+      "invalidPath": "Este caminho não corresponde a um cliente Codex válido para desktop. Selecione o aplicativo novamente.",
+      "candidates": "Aplicativos detectados",
+      "autoLaunchHint": "Desative esta opção para trocar de conta sem iniciar o aplicativo de desktop. Você ainda poderá abri-lo manualmente.",
+      "manualLaunchHint": "Desativar a inicialização automática não conclui esta tentativa manual. Salvar apenas as configurações cancela esta tentativa de inicialização.",
+      "saveAndRetry": "Salvar e tentar de novo",
+      "saveWithoutLaunch": "Salvar e continuar",
+      "saveOnly": "Apenas salvar",
+      "validationBusy": "A verificação do caminho anterior ainda está em andamento. Tente novamente em instantes."
     }
   },
   "githubCopilot": {

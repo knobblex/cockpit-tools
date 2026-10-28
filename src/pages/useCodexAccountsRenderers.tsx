@@ -11,6 +11,8 @@ import { apiServiceProxyAccount } from "../services/codexProxyTargetService";
 import { CodexSpeedControl } from "../components/codex/CodexSpeedControl";
 import { CodexAccountProxyCard } from "../components/codex/CodexAccountProxyCard";
 import { canUseCodexAccountProxy } from "../utils/codexAccountProxy";
+import { resolveCodexAccountCardSkin } from "../utils/codexAccountCardSkin";
+import "../styles/pages/codex-account-card-skins.css";
 import { CodexTeamQuotaHistory } from "../components/codex/CodexTeamQuotaHistory";
 import { isCodexAccountReauthRequired, isCodexClientReauthNoticeOnly, isCodexRefreshTokenNoticeOnly, isCodexRefreshTokenReusedAccount, isCodexServerRevokedReauth } from "../utils/codexSwitchAuthFailure";
 import { CODEX_LAUNCH_PREVIEW_API_SERVICE_CARD_KEY } from "../utils/codexLaunchPreviewInstancePreference";
@@ -570,6 +572,7 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
         const meta = resolveAccountMeta(account);
         const isCurrent = overviewCurrentAccountId === account.id;
         const isApiKeyAccount = isCodexApiKeyAccount(account);
+        const cardSkin = isApiKeyAccount ? resolveCodexAccountCardSkin(account.api_base_url) : "";
         const serverRevokedReauth = isCodexServerRevokedReauth(account);
         const refreshTokenReusedState = isCodexRefreshTokenReusedAccount(account);
         const clientAuthRequired =
@@ -726,7 +729,7 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
           : isQuotaAwareApiKeyAccount
             ? "new-api-exclusive"
             : planClass;
-        const displayPlanLabel = isSponsorApiKeyAccount
+        const displayPlanLabel = isSponsorApiKeyAccount && cardSkin !== "codex-card-skin-apikey-fun"
           ? apiProviderName
           : presentation.planLabel;
         const cockpitApiAccountBalanceText =
@@ -757,7 +760,7 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
         return (
           <div
             key={groupKey ? `${groupKey}-${account.id}` : account.id}
-            className={`codex-account-card ${isCurrent ? "current" : ""} ${isSelected ? "selected" : ""} ${isPendingOAuthAccount ? "pending-auth" : ""} ${isNewApiAccount ? "new-api-exclusive" : ""} ${isQuotaAwareApiKeyAccount ? "api-key-usage-account" : ""} ${isSponsorApiKeyAccount ? "sponsor-api-account" : ""}`}
+            className={`codex-account-card ${isCurrent ? "current" : ""} ${isSelected ? "selected" : ""} ${isPendingOAuthAccount ? "pending-auth" : ""} ${isNewApiAccount ? "new-api-exclusive" : ""} ${isQuotaAwareApiKeyAccount ? "api-key-usage-account" : ""} ${isSponsorApiKeyAccount ? "sponsor-api-account" : ""} ${cardSkin}`}
           >
             <div className="card-top">
               <div className="card-select">
@@ -886,6 +889,7 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
               </div>
             )}
             <CodexAccountProxyCard account={account} placement="summary" />
+            {renderResetCreditControls(account, 'expiry')}
             {!isApiKeyAccount && (
               <div className="account-sub-line">
                 <span className="codex-login-subline" title={signInLine}>
@@ -2123,6 +2127,7 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
                       onError={(text) => setMessage(text ? { text, tone: "error" } : null)} />
                   </div>
                 )}
+                {renderResetCreditControls(account, 'expiry')}
                 {!isApiKeyAccount && (
                   <div className="account-sub-line codex-account-meta-inline">
                     <span className="codex-login-subline" title={signInLine}>

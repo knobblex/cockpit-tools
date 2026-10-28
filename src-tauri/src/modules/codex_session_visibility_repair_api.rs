@@ -345,7 +345,6 @@ impl CodexSessionVisibilityRepairOptions {
             CodexSessionVisibilityRepairMode::Deep => Self::full_provider_migration(),
             CodexSessionVisibilityRepairMode::History => Self {
                 repair_referenced_rollouts: false,
-                require_stopped_instances: true,
                 ..Self::official_state_db_only(mode)
             },
         }
@@ -637,7 +636,11 @@ fn repair_session_visibility_for_instances_with_options(
     if instances.is_empty() {
         return Err("未找到要修复的 Codex 实例".to_string());
     }
-    let process_entries = modules::process::collect_codex_process_entries();
+    let process_entries = if launch_visibility_budget().is_some() {
+        modules::process::collect_codex_launch_maintenance_process_entries()?
+    } else {
+        modules::process::collect_codex_process_entries()
+    };
     check_launch_visibility_budget("process_snapshot")?;
     let mut items = Vec::with_capacity(instances.len());
     let mut backup_dirs = Vec::new();

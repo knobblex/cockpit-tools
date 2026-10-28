@@ -1,7 +1,8 @@
 /*
  * Cockpit Tools native service-tier integration.
  * Independently implemented against the desktop client's local module structure.
- * The account, requirements and model serviceTiers data are never fabricated.
+ * Account and requirements policy stays native. API profiles without a custom
+ * catalog may supplement missing speed metadata from Cockpit's bundled catalog.
  */
 (() => {
   "use strict";
@@ -21,6 +22,24 @@
       || auth == null && root.__cockpitEnhancements?.apiKeyAuthVerified === true);
   const failure = (source, reason) => ({ ok: false, patchedSource: source, diagnostics: { reason } });
 
+  function modelsForSpeed(models, host, auth, hasConfiguredModelCatalog) {
+    if (!allow(host, auth) || hasConfiguredModelCatalog !== false || !Array.isArray(models)) return models;
+    const fallbacks = root.__cockpitEnhancements?.serviceTierFallbacks;
+    if (!fallbacks) return models;
+    let changed = false;
+    const result = models.map(model => {
+      const tiers = model.serviceTiers;
+      const fallback = fallbacks[model.model];
+      // Keep custom/unsupported models and an upstream Ultrafast definition intact.
+      if (!fallback || !Array.isArray(tiers)
+        || !tiers.some(tier => tier.id === 'priority' || tier.id === 'fast')
+        || tiers.some(tier => tier.id === fallback.id)) return model;
+      changed = true;
+      return { ...model, serviceTiers: [...tiers, { ...fallback }] };
+    });
+    return changed ? result : models;
+  }
+
   // Each gate is checked together with its surrounding call contract. No
   // replacement is applied unless all four known contracts occur exactly once.
   function transform(source) {
@@ -29,6 +48,7 @@
     const edits = [];
     const count = { ui: 0, request: 0, queued: 0, explicit: 0 };
     let queuedPolicy = null;
+    let catalogMatches = 0;
     const matches = (pattern) => source.matchAll(new RegExp(pattern, "g"));
     const enclosing = (at) => {
       const start = source.lastIndexOf("function ", at);
@@ -103,12 +123,24 @@
         : `await ${storage}.readGlobalState(\`use-copilot-auth-if-available\`)===!0&&await ${runtime}.isCopilotApiAvailable()`;
       add("explicit", match.index, match[0], `(${match[0]}||${hostMatch.groups.host}===\`local\`&&${allowExpression(`${manager}.getHostId()`, `${match.groups.account}?.type`)}&&!(${copilot}))`);
     }
+    // Supplement the local API model query before the native selector builds
+    // speed options and request settings. Do not replace/filter the model list.
+    for (const match of matches(`select:\\(\\{data:(?<models>${NAME})\\}\\)=>(?<select>${NAME})\\(\\{additionalAvailableModels:new Set\\(${NAME}\\),apiKeyDaybreakSupported:${NAME},authMethod:(?<auth>${NAME}),availableModels:(?<defaults>${NAME})\\.availableModels,defaultModel:\\k<defaults>\\.defaultModel,enabledReasoningEfforts:${NAME},hasConfiguredModelCatalog:(?<catalog>${NAME}),includeUltraReasoningEffort:${NAME},isCustomModelProvider:${NAME},models:\\k<models>,useHiddenModels:\\k<defaults>\\.useHiddenModels\\}\\)`)) {
+      const before = source.slice(Math.max(0, match.index - 500), match.index);
+      const request = before.match(new RegExp(`${NAME}\\(${NAME},(?<host>${NAME})\\)\\.sendRequest\\(\`model/list\`,\\{includeHidden:!0,cursor:null,limit:${NAME}\\},\\{priority:${NAME}\\}\\)\\},$`));
+      if (!request) continue;
+      catalogMatches++;
+      const { models, auth, catalog } = match.groups;
+      edits.push({ start: match.index, end: match.index + match[0].length,
+        text: match[0].replace(`models:${models},`, `models:window.__cockpitNativeFast.modelsForSpeed(${models},${request.groups.host},${auth},${catalog}),`) });
+    }
+    if (catalogMatches > 1) return failure(source, "ambiguous-model-catalog");
     if (Object.values(count).some(value => value !== 1)) return failure(source, "unsupported-gates");
     edits.sort((a, b) => a.start - b.start);
     if (edits.some((edit, i) => i > 0 && edit.start < edits[i - 1].end)) return failure(source, "overlapping-gates");
     let patched = source;
     for (const edit of edits.reverse()) patched = patched.slice(0, edit.start) + edit.text + patched.slice(edit.end);
-    return { ok: true, patchedSource: patched, diagnostics: { reason: "prepared", gates: count } };
+    return { ok: true, patchedSource: patched, diagnostics: { reason: "prepared", gates: count, modelCatalog: catalogMatches } };
   }
 
   function localAsset(value, entry = false) {
@@ -720,6 +752,7 @@
       return reason ? { ok: false, reason, ...(reason === 'draft-present' ? { draft: guard.snapshotDraft?.() } : {}) }
         : { ok: true, reason: "clean-startup" };
     } };
+  api.modelsForSpeed = modelsForSpeed;
   root.__cockpitNativeFast = api;
   if (typeof module === "object" && module.exports) module.exports = api;
 })();

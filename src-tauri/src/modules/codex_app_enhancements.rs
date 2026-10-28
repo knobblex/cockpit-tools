@@ -157,6 +157,10 @@ fn read_profile(profile: &Path) -> Result<Profile, ()> {
     Ok(profile_from_values(&doc, &auth, &cfg))
 }
 
+pub(crate) fn native_fast_enabled_for_profile(profile: &Path) -> bool {
+    read_profile(profile).is_ok_and(|profile| profile.native_fast)
+}
+
 #[derive(Deserialize)]
 struct Target {
     #[serde(rename = "type")]

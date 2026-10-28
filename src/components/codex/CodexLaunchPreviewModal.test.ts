@@ -5,6 +5,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import { buildCodexModelRoutingValue, resolveRoutingCatalog } from "../../utils/codexModelRoutingValue.ts";
 import { deferred, settlePromises } from "../../../tests/helpers/reactHookHarness";
+import { isCodexLaunchCancelled } from '../../utils/codexLaunchCancellation';
 
 // Exercise the production callbacks with controlled IPC completion order. This
 // deliberately excludes rendering, native dialogs and real account/config data.
@@ -56,6 +57,7 @@ function harness(routing = false, overlay = "global-progress-overlay") {
   const saved = { model: "saved" };
   const savedInstance = { id: "synthetic", saved: true };
   const c: Record<string, any> = {
+    isCodexLaunchCancelled,
     configSession: { current: 1 }, configWritePending: { current: false },
     contextReloadRequest: { current: 0 }, contextReloadPending: { current: false },
     loading: false, contextConfigSnapshot: null,

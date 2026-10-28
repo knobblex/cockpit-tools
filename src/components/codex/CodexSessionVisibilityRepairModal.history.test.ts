@@ -128,25 +128,29 @@ for (const rejectBeforeSwitch of [false, true]) {
   });
 }
 
-test('running history targets allow previews but block writes, including all-instance scope', async () => {
+test('running history targets allow direct repair and previews, including all-instance scope', async () => {
   const app = harness({ running: true });
   await settlePromises();
   assert.equal(app.button('preview').props.disabled, false);
-  assert.equal(app.button('start').props.disabled, true);
-  assert.ok(app.rendered().some((node) => contains(node, prefix + 'historyStopHint')));
+  assert.equal(app.button('start').props.disabled, false);
+  assert.ok(app.rendered().some((node) => contains(node, prefix + 'historyLiveHint')));
   app.button('start').props.onClick();
   await settlePromises();
-  assert.equal(app.calls.length, 0, 'write handler must enforce the running-state guard too');
-  assert.equal(app.error.message, prefix + 'historyRunning');
+  assert.equal(app.calls.length, 1);
+  assert.equal(app.calls[0].options.dryRun, false);
+  assert.equal(app.error.message, null);
   app.button('preview').props.onClick();
   await settlePromises();
-  assert.equal(app.calls.length, 1);
-  assert.equal(app.calls[0].options.dryRun, true);
+  assert.equal(app.calls[1].options.dryRun, true);
   app.instance('secondary');
-  assert.equal(app.button('start').props.disabled, false);
+  assert.equal(app.rendered().some((node) => contains(node, prefix + 'historyLiveHint')), false);
   app.button('instanceScopeAll').props.onClick();
-  assert.equal(app.button('start').props.disabled, true);
-  assert.equal(app.button('preview').props.disabled, false);
+  assert.equal(app.button('start').props.disabled, false);
+  assert.ok(app.rendered().some((node) => contains(node, prefix + 'historyLiveHint')));
+  app.button('start').props.onClick();
+  await settlePromises();
+  assert.equal(app.calls[2].options.dryRun, false);
+  assert.equal(app.calls[2].options.repairInstanceIds, null);
   app.h.unmount();
 });
 
@@ -195,15 +199,16 @@ for (const action of ['preview', 'start']) {
 test('a history preview refreshes returned running states after exit and retains other instances', async () => {
   const app = harness({ running: true, secondaryRunning: true });
   await settlePromises();
-  assert.equal(app.button('start').props.disabled, true);
+  assert.equal(app.button('start').props.disabled, false);
   app.execute(async () => ({ message: 'history preview after client exit', historyProjectionCount: 1,
     items: [{ instanceId: 'default', running: false }] }));
   app.button('preview').props.onClick();
   await settlePromises();
   assert.equal(app.button('confirmRepair').props.disabled, false, 'stopped target can now be repaired');
-  assert.equal(app.rendered().some((node) => contains(node, prefix + 'historyStopHint')), false);
+  assert.equal(app.rendered().some((node) => contains(node, prefix + 'historyLiveHint')), false);
   app.button('instanceScopeAll').props.onClick();
-  assert.equal(app.button('start').props.disabled, true, 'an omitted running instance stays running');
+  assert.equal(app.button('start').props.disabled, false, 'running instances still allow repair');
+  assert.ok(app.rendered().some((node) => contains(node, prefix + 'historyLiveHint')), 'an omitted running instance retains its restart hint');
   app.button('instanceScopeTarget').props.onClick();
   assert.equal(app.button('start').props.disabled, false);
   app.button('start').props.onClick();
@@ -230,6 +235,7 @@ test('quick and deep modes retain provider selection and the stopped-client requ
   app.providers.resolve({ defaultProvider: 'fixture', providers: [{ id: 'fixture', sources: [], isDefault: true }] });
   await settlePromises();
   assert.equal(app.button('start').props.disabled, false);
+  assert.equal(app.rendered().some((node) => contains(node, prefix + 'stopInstanceHint')), false);
   app.button('preview').props.onClick();
   await settlePromises();
   assert.equal(app.calls[0].options.targetProvider, 'fixture');

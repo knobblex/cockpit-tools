@@ -10,9 +10,35 @@
 
 ## [Unreleased]
 
-### 变更
+## [1.3.75] - 2026-10-27
 
+### 新增
+- 在 API 服务模型中加入 GPT-6.1 Terra，并支持标准、快速、Flex 和长上下文价格的费用估算。
+- 新增应用背景设置：提供四款渐变预设、本地图片选择与预览，支持调整强度、模糊和图片位置。尚无图片时“自定义”卡片显示加号，点击即可选图；修改立即生效并在本机自动保存，仅保留“恢复默认”操作，不改变账号卡片和控件样式。
+- 根据实际 API 地址为 Codex 账号卡片应用对应主题，包括 APIKEY.FUN、ai.ahzm.top 和 yunmoor.com，保留卡片内容与操作。
+- 账号卡片与仪表盘在原有位置使用统一的额度时间样式显示 Codex 最近重置到期时间，临近到期时突出提醒；到期明细持久缓存，按账号分散在约 6 小时刷新，并限制请求并发，打开详情时立即更新共享缓存。感谢 @iamvicliu（[#2724](https://github.com/jlcodes99/cockpit-tools/pull/2724)）。
+- 补充 Antigravity 的 Gemini 4 Argon、Gemini 3.8 Flash 和 Claude 5.5 模型及分组，保留旧模型、档位区别和自定义分组设置；默认自动切号仅检查当前账号实际返回的模型分组。感谢 @Chain813（[#2915](https://github.com/jlcodes99/cockpit-tools/pull/2915)）。
+
+### 修复
+- 修复 Windows 等平台本地 API Key 账号使用客户端默认模型列表时，Sol 6.1 与 Astra 缺少超高速选项的问题；保留模型列表和自定义目录，选择与请求继续使用原生速度流程。
+- 修正 New API 账号卡片额度条与剩余额度文字方向相反的问题，让进度条与可用／总额度使用相同口径。感谢 @specetator（[#2923](https://github.com/jlcodes99/cockpit-tools/pull/2923)）。
+- 取消单个 API 请求时，不再因取消消息被误判为超时而重启共享 Sidecar、打断其他请求。感谢 @limaomei-pixel（[#2909](https://github.com/jlcodes99/cockpit-tools/pull/2909)）。
+- 将展开后的协作工具调用恢复为声明中的命名空间与名称，避免子代理协作出现不支持的工具调用错误。感谢 @jamie950315（[#2901](https://github.com/jlcodes99/cockpit-tools/pull/2901)）。
+- 防止共享客户端模型目录中的第三方模型被分配给不支持它们的 ChatGPT 账号，同时保留官方 Reserve 模型调用能力。感谢 @jamie950315（[#2902](https://github.com/jlcodes99/cockpit-tools/pull/2902)）。
+- Gemini 流式响应中的参数错误仅使当前请求失败，不再错误冷却账号；调用方仍能看到原始上游错误。感谢 @jamie950315（[#2904](https://github.com/jlcodes99/cockpit-tools/pull/2904)）。
+- Kiro 企业账号设备授权与 Token 刷新使用 AWS IAM Identity Center 要求的 JSON 请求格式。感谢 @peisencn（[#2799](https://github.com/jlcodes99/cockpit-tools/pull/2799)）。
+- Claude Desktop Gateway 切换账号时保留用户的隐私、权限、网络限制及模型设置，写入失败时保留原有可用配置；切号在后台执行，不再等待旧网关的进行中请求结束。感谢 @fflow2023（[#2907](https://github.com/jlcodes99/cockpit-tools/pull/2907)）。
+- Antigravity 额度请求在缺少旧版安装元数据时使用后台探测的版本缓存，保留协议版本下限。感谢 @moyuan10086（[#2900](https://github.com/jlcodes99/cockpit-tools/pull/2900)）。
+- 数据管理设置首次进入后保留已挂载内容，减少反复切换页签引起的备份扫描，其他页签不提前加载数据管理内容。感谢 @xhrxgr（[#2740](https://github.com/jlcodes99/cockpit-tools/pull/2740)）。
+- 注入的速度菜单使用官方客户端内置的超高速说明翻译，避免被英文文案覆盖；保留速度档位选择和请求参数。
+- 取消本地开发任务时同步清理开发版应用与前端服务，避免窗口残留和终端继续输出日志，同时保留其他应用实例。
+- 减少 Windows 进程查询暂时不可用时的 Codex 启动误报：优先确认启动器返回的进程，会话检查无法安全开始时保留历史并跳过本次维护；启动结果不明确时显示待确认并提供只读状态检查，检测到目标实例运行后转为成功，避免引导重复启动。
+- 统一 Codex 启动路径缺失时的引导，覆盖账号切换、API 服务、实例、CLI 和原生菜单入口。路径弹框置于其他弹框上方，支持选择程序、检测运行中应用及设置切号后自动启动；保存后继续原操作，取消或失败时不重复启动。
+
+### 变更
+- “修复会话索引”支持在 Codex 客户端和 CLI 运行时直接执行：备份并重置异常索引，保留聊天记录，提交前检查并发变化，并提示完成后重启客户端。
 - 清空已发布公告，客户端成功刷新后不再显示旧公告或自动弹出公告。
+
 
 ## [1.3.74] - 2026-10-24
 
