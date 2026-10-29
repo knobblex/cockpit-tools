@@ -98,6 +98,7 @@
     },
     "macOS": {
       "bundleName": "Cockpit Tools",
+      "signingIdentity": "-",
       "infoPlist": "Info.plist"
     }
   },

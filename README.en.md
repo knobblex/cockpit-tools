@@ -387,11 +387,7 @@ brew tap jlcodes99/cockpit-tools https://github.com/jlcodes99/cockpit-tools
 brew install --cask cockpit-tools
 ```
 
-If you hit the macOS "App is damaged" warning, you can also install with `--no-quarantine`:
-
-```bash
-brew install --cask --no-quarantine cockpit-tools
-```
+If macOS blocks the app, verify it using the [installation troubleshooting instructions](scripts/release/assets/dmg-readme.txt) shipped with the installer.
 
 If Homebrew says the app already exists (e.g. `already an App at '/Applications/Cockpit Tools.app'`), remove the old app and install again:
 
@@ -409,16 +405,7 @@ brew install --cask --force cockpit-tools
 ### 🛠️ Troubleshooting
 
 #### macOS says "App is damaged and can't be opened"?
-Due to macOS security mechanisms, apps not downloaded from the App Store may trigger this warning. The current open-source release flow does not yet use Apple Developer ID signing or notarization, so some macOS versions may show stricter Gatekeeper prompts. You can quickly fix this by following these steps:
-
-1.  **Command Line Fix** (Recommended):
-    Open Terminal and run the following command:
-    ```bash
-    sudo xattr -rd com.apple.quarantine "/Applications/Cockpit Tools.app"
-    ```
-    > **Note**: If you changed the app name, please adjust the path in the command accordingly.
-
-2.  **Or**: Go to "System Settings" -> "Privacy & Security" and click "Open Anyway".
+This warning can indicate an invalid signature, damaged files, or a macOS security check. Follow the [install and troubleshooting instructions](scripts/release/assets/dmg-readme.txt) shipped with the installer to verify the signature before handling security prompts. See the [release process](docs/release-process.md#3-github-actions-发布目标) for the signing responsibilities.
 
 ---
 

@@ -65,7 +65,7 @@ Linux release 同时包含 AppImage、deb 和 rpm updater targets。macOS Univer
 
 Universal 不再从源码重编两套宿主。ARM 和 Intel release job 在本轮构建后通过 `scripts/release/macos-universal.cjs --mode stage` 上传宿主与 Go sidecar 的薄二进制，附带版本、commit、workflow run ID 和 SHA-256。Universal job 等待这两个 job 完成，使用同一 run 的具名 artifact；`--mode merge` 校验身份、文件哈希、实际架构，合并宿主和 sidecar，并逐片提取比对原始内容，再运行官方 `tauri bundle --target universal-apple-darwin`，沿用签名、资源和 DMG 流程。缺失或不匹配直接失败，不回退到其他版本或旧产物。CI matrix 中的 Universal 源码构建仍保留，用于独立兼容性验证。
 
-ARM 和 Intel job 执行 `tauri build`，Universal job 执行 `tauri bundle`；三个 job 随后都会执行 `scripts/release/inject-dmg-readme.cjs`，用 `hdiutil` 重建 DMG（保留 `.app` 原样）并写入 `安装与常见问题.txt`，同时固定窗口中三个图标的位置：Cockpit Tools 与 Applications 保持同一行（`180,150` / `480,150`），保证“把图标拖到右侧安装”的动线不变；说明文件单独放在下一行（`330,330`），窗口尺寸随之调整为 660×490、图标 112px、文字 14pt。Tauri bundler 没有“向 DMG 追加文件”的配置项，因此这里重建的是 bundler 产物本身，而不是在打包阶段插文件；重建后 DMG 文件名与 Tauri 约定一致（`<productName>_<version>_<arch>.dmg`），供 `stage_release_assets.cjs` 正常规范化。说明文案模板位于 `scripts/release/assets/dmg-readme.txt`，修改后需与 `README.md` / `README.en.md` 的 Gatekeeper 排查章节保持一致。
+ARM 和 Intel job 执行 `tauri build`，Universal job 执行 `tauri bundle`；三个 job 随后都会执行 `scripts/release/inject-dmg-readme.cjs`，用 `hdiutil` 重建 DMG（保留 `.app` 原样）并写入 `安装与常见问题.txt`，同时固定窗口中三个图标的位置：Cockpit Tools 与 Applications 保持同一行（`180,150` / `480,150`），保证“把图标拖到右侧安装”的动线不变；说明文件单独放在下一行（`330,330`），窗口尺寸随之调整为 660×490、图标 112px、文字 14pt。Tauri bundler 没有“向 DMG 追加文件”的配置项，因此这里重建的是 bundler 产物本身，而不是在打包阶段插文件；重建后 DMG 文件名与 Tauri 约定一致（`<productName>_<version>_<arch>.dmg`），供 `stage_release_assets.cjs` 正常规范化。安装排查步骤的唯一来源是 [`dmg-readme.txt`](../scripts/release/assets/dmg-readme.txt)，README 链接该文件。
 
 macOS 构建使用 `npm run tauri -- build ...` 或 `node scripts/tauri.cjs build ...`（正式 workflow 同样使用后者），在构建结束或失败时清理本轮新增的 Tauri `bundle/macos/rw.*.dmg` 临时挂载，不碰构建前已有的卷及最终 DMG。直接使用 `npx tauri build` 会绕过这层清理。
 
@@ -86,7 +86,7 @@ Tauri release build 使用仓库配置的 updater signing secrets：
 - `TAURI_SIGNING_PRIVATE_KEY`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 
-这里的 signing 指 Tauri updater artifact 签名；不要把它描述成已经完成 Apple notarization 或 Windows Authenticode，除非 workflow 另外明确实现了这些步骤。
+上述 Secrets 只签名 updater artifact。macOS 应用签名由 [`bundle.macOS`](../src-tauri/tauri.conf.json) 配置：默认临时签名（ad-hoc），由 Tauri 封装应用资源和内嵌可执行文件，不能只保留 Rust 链接器的裸二进制签名。Build Matrix 在上传前执行 `codesign --verify --deep --strict`，验证失败不上传安装包。临时签名不等于 Apple Developer ID 或 Apple 公证；首次打开仍可能需要按安装说明允许此 App。Windows Authenticode 同样不由 updater Secrets 提供。
 
 ## 4. Release assets 与 updater manifests
 

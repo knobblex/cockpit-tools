@@ -384,11 +384,7 @@ brew tap jlcodes99/cockpit-tools https://github.com/jlcodes99/cockpit-tools
 brew install --cask cockpit-tools
 ```
 
-如果遇到 macOS “应用已损坏”或无法打开，也可以使用 `--no-quarantine` 安装：
-
-```bash
-brew install --cask --no-quarantine cockpit-tools
-```
+macOS 无法打开时，先按随包附带的[安装排查说明](scripts/release/assets/dmg-readme.txt)核验应用。
 
 如果提示已存在应用（例如：`already an App at '/Applications/Cockpit Tools.app'`），请先删除旧版本再安装：
 
@@ -406,16 +402,7 @@ brew install --cask --force cockpit-tools
 ### 🛠️ 常见问题排查 (Troubleshooting)
 
 #### macOS 提示“应用已损坏，无法打开”？
-由于 macOS 的安全机制，非 App Store 下载的应用可能会触发此提示。当前开源发布流程尚未接入 Apple Developer ID 签名和公证，因此部分系统版本会显示更严格的 Gatekeeper 提示。您可以按照以下步骤快速修复：
-
-1.  **命令行修复** (推荐):
-    打开终端，执行以下命令：
-    ```bash
-    sudo xattr -rd com.apple.quarantine "/Applications/Cockpit Tools.app"
-    ```
-    > **注意**: 如果您修改了应用名称，请在命令中相应调整路径。
-
-2.  **或者**: 在“系统设置” -> “隐私与安全性”中点击“仍要打开”。
+此提示可能来自签名失效、文件损坏或系统安全检查。请按随安装包提供的[安装与常见问题](scripts/release/assets/dmg-readme.txt)先核验签名，再处理安全提示。构建签名的职责见[发布流程](docs/release-process.md#3-github-actions-发布目标)。
 
 ---
 
