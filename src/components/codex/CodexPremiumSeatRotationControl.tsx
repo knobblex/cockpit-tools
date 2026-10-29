@@ -12,7 +12,7 @@ const empty: PremiumSeatConfig = { enabled: false, workspaceId: "", adminAccount
 const poolDraft = (config: PremiumSeatConfig | null) => ({ ...(config ?? empty), useApiKeyPool: true, memberAccountIds: [] });
 const ordinaryKey = (key: CodexLocalAccessApiKey) => key.enabled && key.providerGateway == null && key.modelRouting == null;
 const phases: Record<PremiumSeatState["phase"], string> = {
-  idle: "等待核对 / 等待候选", ready: "已验证，监测中", draining: "等待在途请求结束",
+  idle: "等待核对 / 等待候选", ready: "已验证，按请求切换", draining: "等待在途请求结束",
   submitted: "已提交，正在核对", verifying: "验证目标成员", needs_attention: "需要处理",
 };
 
@@ -78,7 +78,7 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
     try {
       const next = await work();
       if (saved) { dirty.current = false; setDraft(poolDraft(next.config)); }
-      setState(next); setNotice(next.message ?? "配置已保存，后台稍后检查。");
+      setState(next); setNotice(next.message ?? "配置已保存。");
     } catch (e) { setError(String(e)); }
     finally { pending.current = false; setBusy(false); }
   };
@@ -115,7 +115,7 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
       </button>
       </div>
     </div>
-    <p className="premium-seat-description">仅团队工作区可手动启用。当前成员有额度时持续使用；耗尽后核对席位并按账号池顺序切换，验证通过后接入路由。</p>
+    <p className="premium-seat-description">仅团队工作区可手动启用。正常调用沿用当前成员；实际请求明确返回额度耗尽时，按需核对并尝试下一位，验证通过后接入路由。</p>
     <dl className="premium-seat-overview">
       <div><dt><Users size={13} />当前高级成员</dt><dd>{display(state?.holderAccountId)}</dd></div>
       <div><dt><ShieldCheck size={13} />关联账号池</dt><dd>{savedKey?.label ?? "尚未配置"}</dd></div>

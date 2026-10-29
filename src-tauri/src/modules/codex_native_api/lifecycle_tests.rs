@@ -108,6 +108,29 @@ async fn recorded(host: &Recorder) -> RequestReport {
 }
 
 #[tokio::test]
+async fn native_lifecycle_keeps_structured_exhaustion_evidence_when_gateway_error_is_normalized() {
+    let (mut tracker, host, _, _stop, _) = fixture().await;
+    let error = ServiceError::new(429, "upstream_error", "Synthetic quota rejection")
+        .with_error_details(json!({"code":"usage_limit_reached"}));
+    tracker.fail(&error).await;
+    let report = recorded(&host).await;
+    assert_eq!(report.error.as_deref(), Some("upstream_error"));
+    assert_eq!(report.upstream_error_code.as_deref(), Some("usage_limit_reached"));
+}
+
+#[tokio::test]
+async fn native_lifecycle_new_attempt_and_success_clear_old_quota_rejections() {
+    let (mut tracker, host, _, _stop, _) = fixture().await;
+    tracker.capture_upstream_error(429, &json!({"error":{"code":"usage_limit_reached"}}));
+    tracker.attempt_result(429, false, Some("upstream_error"));
+    tracker.begin_attempt("responses");
+    assert_eq!(tracker.report.as_ref().unwrap().upstream_error_code, None);
+    tracker.capture_upstream_error(429, &json!({"error":{"code":"usage_limit_reached"}}));
+    tracker.complete(200, true, Some(usage()), None).await;
+    assert_eq!(recorded(&host).await.upstream_error_code, None);
+}
+
+#[tokio::test]
 async fn native_lifecycle_quota_is_observed_before_completion_and_ignores_outgoing_headers() {
     let (mut tracker, host, _activity, _stop, _gate) = fixture().await;
     let mut headers = axum::http::HeaderMap::new();

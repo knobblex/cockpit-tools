@@ -1,7 +1,7 @@
 // Included in codex_local_access so the coordinator uses the same ACL and probe path.
 use crate::modules::codex_seat_rotation as seat;
 
-static SEAT_MONITOR_STARTED: AtomicBool = AtomicBool::new(false);
+static SEAT_REQUEST_CHECK_GATE: OnceLock<Mutex<seat::worker::RequestCheckGate>> = OnceLock::new();
 
 fn seat_dir() -> Result<PathBuf, String> {
     account::get_data_dir()
@@ -221,7 +221,9 @@ async fn seat_confirm_team_profile(original: CodexAccount) -> Result<CodexAccoun
     Ok(refreshed)
 }
 
-async fn seat_admin_api(config: &seat::Config) -> Result<seat::http::AdminApi, seat::http::AdminError> {
+async fn seat_admin_api(
+    config: &seat::Config,
+) -> Result<seat::http::AdminApi, seat::http::AdminError> {
     let admin = timeout(
         Duration::from_secs(30),
         codex_account::prepare_account_for_quota_query(&config.admin_account_id),
@@ -423,9 +425,7 @@ fn seat_live_quota_evidence(
     now: i64,
 ) -> Result<(seat::QuotaEvidence, Option<i64>), seat::QuotaReadError> {
     match plan.map(str::trim).filter(|plan| !plan.is_empty()) {
-        Some(plan) if plan.eq_ignore_ascii_case("free") => {
-            Err("实时套餐已不具备工作区权益".into())
-        }
+        Some(plan) if plan.eq_ignore_ascii_case("free") => Err("实时套餐已不具备工作区权益".into()),
         Some(_) => Ok(raw.map_or((seat::QuotaEvidence::Unknown, None), |raw| {
             seat::quota_evidence(raw, now)
         })),
@@ -467,7 +467,7 @@ fn seat_quota_preparation_error(
             .and_then(|status| status.parse::<u16>().ok())
             .is_some_and(|status| matches!(status, 408 | 429 | 500..=599));
     if eligible && temporary {
-        seat::QuotaReadError::temporary("成员授权准备暂时失败，稍后重试")
+        seat::QuotaReadError::temporary("成员授权准备暂时失败，请按需手动核对")
     } else {
         "成员授权不可用或身份已变化，请重新核对".into()
     }
@@ -662,7 +662,9 @@ pub async fn configure_premium_seat_rotation(config: seat::Config) -> Result<sea
     if seat_pause_path(&dir).exists() {
         fs::remove_file(seat_pause_path(&dir)).map_err(|_| "无法清除暂停标记")?;
     }
-    ensure_premium_seat_monitor_started();
+    if state.config.as_ref().is_some_and(|config| config.enabled) {
+        run_premium_seat_attempt(&dir, &mut state).await?;
+    }
     Ok(state)
 }
 
@@ -688,7 +690,6 @@ pub async fn control_premium_seat_rotation(action: &str) -> Result<seat::State, 
             return Err(error);
         }
         result?;
-        ensure_premium_seat_monitor_started();
         return Ok(state);
     }
     if action == "pause" {
@@ -699,13 +700,15 @@ pub async fn control_premium_seat_rotation(action: &str) -> Result<seat::State, 
         if let Ok(_lock) = seat::coordinator_lock(&dir) {
             let mut state = seat::load(&dir)?;
             state.paused = true;
-            state.message = Some("已暂停新的席位调换；已提交操作仍会核对结果".into());
+            state.next_check_at = None;
+            state.message = Some("已暂停新的席位调换；未决操作请手动核对".into());
             seat::save(&dir, &state)?;
             return Ok(state);
         }
         let mut state = seat::load(&dir)?;
         state.paused = true;
-        state.message = Some("已请求暂停；已提交的调换无法撤销，后台将核对实际结果".into());
+        state.next_check_at = None;
+        state.message = Some("已请求暂停；已提交的调换无法撤销，请手动核对实际结果".into());
         return Ok(state);
     }
     if !matches!(action, "resume" | "resolve_unapplied") {
@@ -759,7 +762,6 @@ pub async fn control_premium_seat_rotation(action: &str) -> Result<seat::State, 
                 state.attention(format!("{error}；未决操作只读核对失败：{reconcile_error}"));
             }
             seat::save(&dir, &state)?;
-            ensure_premium_seat_monitor_started();
             return Ok(state);
         }
         seat::save(&dir, &state)?;
@@ -786,25 +788,69 @@ pub async fn control_premium_seat_rotation(action: &str) -> Result<seat::State, 
     if seat_pause_path(&dir).exists() {
         fs::remove_file(seat_pause_path(&dir)).map_err(|_| "无法恢复席位任务")?;
     }
-    ensure_premium_seat_monitor_started();
+    run_premium_seat_attempt(&dir, &mut state).await?;
     Ok(state)
 }
 
-fn ensure_premium_seat_monitor_started() {
-    if SEAT_MONITOR_STARTED.swap(true, Ordering::SeqCst) {
+fn premium_seat_request_exhausted(report: &native_contract::RequestReport) -> bool {
+    !report.success
+        && report.caller.id != NATIVE_INTERNAL_CALLER
+        && report.official_registration_id.is_none()
+        && seat::worker::is_exhaustion_error(
+            report.status,
+            report
+                .upstream_error_code
+                .as_deref()
+                .or(report.error.as_deref()),
+        )
+        && !native_is_reserve_model(&report.upstream_model)
+        && !report
+            .diagnostics
+            .as_ref()
+            .is_some_and(|context| context.upstream_request_scoped)
+}
+
+fn note_premium_seat_request(report: &native_contract::RequestReport) {
+    if report.caller.id == NATIVE_INTERNAL_CALLER || report.official_registration_id.is_some() {
         return;
     }
-    tauri::async_runtime::spawn(async {
-        let mut interval = tokio::time::interval(Duration::from_secs(seat::MONITOR_TICK_SECS));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            interval.tick().await;
-            premium_seat_tick().await;
+    let started_at_ms = report
+        .diagnostics
+        .as_ref()
+        .map(|context| context.started_at_ms)
+        .filter(|at| *at > 0)
+        .unwrap_or_else(|| {
+            now_ms().saturating_sub(report.elapsed.as_millis().min(i64::MAX as u128) as i64)
+        });
+    let gate = SEAT_REQUEST_CHECK_GATE.get_or_init(Default::default);
+    if report.success {
+        if let Ok(mut gate) = gate.lock() {
+            gate.succeeded(&report.caller.id, &report.account_id, started_at_ms);
         }
+        return;
+    }
+    if !premium_seat_request_exhausted(report) {
+        return;
+    }
+    let key = report.caller.id.clone();
+    let account = report.account_id.clone();
+    let status = report.status;
+    let code = report
+        .upstream_error_code
+        .clone()
+        .or_else(|| report.error.clone());
+    tauri::async_runtime::spawn(async move {
+        premium_seat_request_failed(&key, &account, status, code.as_deref(), started_at_ms).await;
     });
 }
 
-async fn premium_seat_tick() {
+async fn premium_seat_request_failed(
+    key: &str,
+    account: &str,
+    status: u16,
+    code: Option<&str>,
+    started_at_ms: i64,
+) {
     let Ok(dir) = seat_dir() else {
         return;
     };
@@ -814,32 +860,30 @@ async fn premium_seat_tick() {
     let Ok(mut state) = seat::load(&dir) else {
         return;
     };
-    let Some(config) = state
-        .config
-        .clone()
-        .filter(|c| c.enabled || state.pending())
-    else {
-        return;
-    };
     if seat_pause_path(&dir).exists() {
-        state.paused = true;
-    }
-    if state.paused
-        && !state.pending()
-        && !seat::worker::can_recheck_paused_holder(&state)
-        && !seat::worker::can_retry_monitor_read(&dir, &state)
-    {
         return;
     }
-    if state.next_check_at.is_some_and(|at| at > seat_now()) {
+    let claimed = SEAT_REQUEST_CHECK_GATE
+        .get_or_init(Default::default)
+        .lock()
+        .is_ok_and(|mut gate| gate.claim(&state, key, account, status, code, started_at_ms));
+    if !claimed {
         return;
     }
+    if let Err(error) = run_premium_seat_attempt(&dir, &mut state).await {
+        logger::log_warn(&format!("请求触发的高级席位核对失败：{error}"));
+    }
+}
+
+async fn run_premium_seat_attempt(dir: &Path, state: &mut seat::State) -> Result<(), String> {
+    let config = state.config.clone().ok_or("尚未配置席位调换")?;
     let previous_status = (state.phase.clone(), state.paused, state.message.clone());
-    let result = premium_seat_step(&dir, &config, &mut state).await;
+    let result = premium_seat_step(dir, &config, state).await;
     if let Err(error) = result {
         state.attention(error);
     }
-    if seat_pause_path(&dir).exists() {
+    state.next_check_at = None;
+    if seat_pause_path(dir).exists() {
         state.paused = true;
     }
     if previous_status != (state.phase.clone(), state.paused, state.message.clone()) {
@@ -855,9 +899,9 @@ async fn premium_seat_tick() {
             logger::log_info(&diagnostic);
         }
     }
-    if let Err(error) = seat::save(&dir, &state) {
+    if let Err(error) = seat::save(dir, state) {
         // Do not keep an earlier publication alive after a failed state commit.
-        match write_string_atomic(&seat_pause_path(&dir), "state_write_failed") {
+        match write_string_atomic(&seat_pause_path(dir), "state_write_failed") {
             Ok(()) => logger::log_warn(&format!(
                 "高级席位任务状态写入失败，已设置暂停标记: {error}"
             )),
@@ -865,7 +909,9 @@ async fn premium_seat_tick() {
                 "高级席位任务状态与暂停标记均写入失败: state_error={error}, pause_error={pause_error}"
             )),
         }
+        return Err(error);
     }
+    Ok(())
 }
 
 struct PremiumSeatBackend<'a> {
@@ -964,8 +1010,7 @@ async fn premium_seat_step(
     let backend = PremiumSeatBackend {
         config,
         api: tokio::sync::Mutex::new(None),
-        refresh_admin: seat::worker::can_refresh_admin(state)
-            || seat::worker::can_retry_monitor_read(dir, state),
+        refresh_admin: seat::worker::can_refresh_admin(state),
     };
     seat::worker::step(dir, config, state, &backend).await
 }
@@ -1037,6 +1082,11 @@ fn seat_routing_state() -> Result<(PathBuf, seat::State), native_contract::Servi
             "Seat coordination state is invalid; reconcile before routing",
         )
     })?;
+    // Reuse the state already read for admission; observing successful requests
+    // needs no extra disk access and unrelated keys cannot overwrite evidence.
+    if let Ok(mut gate) = SEAT_REQUEST_CHECK_GATE.get_or_init(Default::default).lock() {
+        gate.synchronize(&state);
+    }
     Ok((dir, state))
 }
 

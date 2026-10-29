@@ -92,6 +92,7 @@ fn report(
     message: Option<&str>,
 ) -> native_contract::RequestReport {
     native_contract::RequestReport {
+        upstream_error_code: None,
         official_access_fingerprint: None,
         official_authorization_revision: None,
         official_registration_id: None,

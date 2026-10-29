@@ -296,6 +296,8 @@ pub struct RequestReport {
     pub elapsed: Duration,
     pub usage: Option<Value>,
     pub error: Option<String>,
+    /// Structured upstream code, retained separately from the gateway error category.
+    pub upstream_error_code: Option<String>,
     pub error_message: Option<String>,
     pub credential_scope: bool,
     pub retry_after: Option<Duration>,

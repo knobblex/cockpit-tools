@@ -335,6 +335,7 @@ impl RequestTracker {
                 elapsed: Duration::ZERO,
                 usage: None,
                 error: Some("client_cancelled".into()),
+                upstream_error_code: None,
                 error_message: None,
                 credential_scope: false,
                 retry_after: None,
@@ -395,6 +396,7 @@ impl RequestTracker {
             report.credential_scope = false;
             report.error_message = None;
             report.official_authorization_error = None;
+            report.upstream_error_code = None;
             let previous = self.diagnostics.as_ref().and_then(|context| context.attempts.last());
             let mut attempt = next.unwrap_or_else(|| DiagnosticAttempt {
                 authorization_route: previous.and_then(|attempt| attempt.authorization_route.clone()),
@@ -596,6 +598,7 @@ impl RequestTracker {
         let open_attempt = self.diagnostics.as_ref().and_then(|context| context.attempts.last())
             .is_some_and(|attempt| attempt.status.is_none());
         if let Some(details) = error.response_error.as_ref() {
+            self.capture_upstream_error_code(details);
             self.capture_official_authorization_error(error.status, details);
         }
         let retired = if error.transport_failure == Some(super::contract::TransportFailureKind::TlsDecrypt) {
@@ -648,7 +651,19 @@ impl RequestTracker {
         }
     }
 
+    fn capture_upstream_error_code(&mut self, value: &serde_json::Value) {
+        if let Some(report) = &mut self.report {
+            let error = super::diagnostics::error_object(value);
+            report.upstream_error_code = error
+                .get("code")
+                .or_else(|| error.get("type"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned);
+        }
+    }
+
     pub(super) fn capture_upstream_error(&mut self, status: u16, value: &serde_json::Value) {
+        self.capture_upstream_error_code(value);
         self.capture_official_authorization_error(status, value);
         let (message, scope) = super::diagnostics::upstream_error_metadata_status(status, value);
         self.capture_response_error(message.as_deref(), scope);
@@ -765,6 +780,7 @@ impl RequestTracker {
             elapsed: Duration::ZERO,
             usage: None,
             error: Some("client_cancelled".to_string()),
+            upstream_error_code: None,
             error_message: None,
             credential_scope: false,
             retry_after: None,
@@ -912,6 +928,7 @@ impl RequestTracker {
             }
             report.error = error;
             if success {
+                report.upstream_error_code = None;
                 report.error_message = None;
                 report.credential_scope = false;
             }

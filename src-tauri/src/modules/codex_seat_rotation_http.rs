@@ -50,11 +50,6 @@ impl AdminError {
             message: message.into(),
         }
     }
-
-    // Only these old, transport-only failures can be migrated out of attention.
-    pub(crate) fn legacy_connection_failure(message: &str) -> bool {
-        matches!(message, "成员查询连接失败" | "席位数量查询连接失败")
-    }
 }
 impl std::fmt::Display for AdminError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

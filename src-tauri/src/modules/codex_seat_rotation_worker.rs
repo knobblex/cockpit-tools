@@ -25,6 +25,98 @@ pub fn pause_path(dir: &Path) -> PathBuf {
     dir.join("codex_premium_seat_rotation.pause")
 }
 
+/// One read per real exhaustion episode. Failed reads never schedule another
+/// request; a newer successful call or explicit configuration change rearms it.
+#[derive(Default)]
+pub struct RequestCheckGate {
+    holder: Option<HolderContext>,
+    attempted_at: Option<i64>,
+    succeeded_at: Option<i64>,
+}
+
+#[derive(PartialEq, Eq)]
+struct HolderContext {
+    revision: u64,
+    key: String,
+    account: String,
+    validated_at: Option<i64>,
+}
+
+pub fn is_exhaustion_error(status: u16, code: Option<&str>) -> bool {
+    status == 429
+        && matches!(
+            code,
+            Some("usage_limit_reached" | "insufficient_quota" | "quota_exceeded")
+        )
+}
+
+impl RequestCheckGate {
+    pub fn synchronize(&mut self, state: &State) {
+        let holder = state
+            .config
+            .as_ref()
+            .filter(|config| config.enabled)
+            .zip(state.holder_account_id.as_ref())
+            .map(|(config, account)| HolderContext {
+                revision: state.revision,
+                key: config.api_key_id.clone(),
+                account: account.clone(),
+                validated_at: state.validated_at,
+            });
+        if self.holder != holder {
+            self.holder = holder;
+            self.attempted_at = None;
+            self.succeeded_at = None;
+        }
+    }
+
+    pub fn succeeded(&mut self, key: &str, account: &str, started_at_ms: i64) {
+        if !self
+            .holder
+            .as_ref()
+            .is_some_and(|holder| holder.key == key && holder.account == account)
+        {
+            return;
+        }
+        self.succeeded_at = Some(
+            self.succeeded_at
+                .map_or(started_at_ms, |at| at.max(started_at_ms)),
+        );
+        if self.attempted_at.is_some_and(|at| started_at_ms > at) {
+            self.attempted_at = None;
+        }
+    }
+
+    pub fn claim(
+        &mut self,
+        state: &State,
+        key: &str,
+        account: &str,
+        status: u16,
+        code: Option<&str>,
+        started_at_ms: i64,
+    ) -> bool {
+        if !is_exhaustion_error(status, code)
+            || state.paused
+            || state.pending()
+            || !state.allows(Some(key), account, false, started_at_ms / 1000)
+            || !state
+                .config
+                .as_ref()
+                .is_some_and(|c| c.enabled && c.api_key_id == key)
+            || state.holder_account_id.as_deref() != Some(account)
+        {
+            return false;
+        }
+        self.synchronize(state);
+        if self.succeeded_at.is_some_and(|at| at >= started_at_ms) || self.attempted_at.is_some() {
+            return false;
+        }
+        self.attempted_at = Some(started_at_ms);
+        true
+    }
+}
+
 fn validate_identities<B: Backend>(backend: &B, op: &Operation) -> Result<(), String> {
     for (id, user) in [
         (&op.source_account_id, &op.source_user_id),
@@ -96,51 +188,37 @@ pub async fn step<B: Backend>(
     state: &mut State,
     backend: &B,
 ) -> Result<(), String> {
-    if can_recheck_paused_holder(state) && state.phase == Phase::NeedsAttention {
-        // Older paused monitors stopped permanently when quota was unknown.
-        // Recover only that read-only state, retaining the user's rotation pause.
-        state.phase = Phase::Idle;
-    } else if can_retry_monitor_read(dir, state) {
-        state.paused = false;
-        state.phase = Phase::Idle;
+    if state.paused && !state.pending() {
         state.next_check_at = None;
+        return Ok(());
     }
-    step_with_trigger(dir, config, state, backend, false).await
+    let result = step_with_trigger(dir, config, state, backend, false).await;
+    finish_attempt(state);
+    result
 }
 
-/// Recover pre-fix read failures, never a user pause or uncertain swap.
-pub fn can_retry_monitor_read(dir: &Path, state: &State) -> bool {
-    state.paused
-        && state.phase == Phase::NeedsAttention
-        && !state.pending()
-        && !pause_path(dir).exists()
-        && state.config.as_ref().is_some_and(|config| config.enabled)
-        && state.holder_account_id.is_some()
-        && state.holder_user_id.is_some()
-        && state.message.as_deref().is_some_and(|message| {
-            http::AdminError::legacy_connection_failure(message)
-                || message == "实时订阅窗口无法判断；未提交席位调换"
-        })
+fn finish_attempt(state: &mut State) {
+    state.next_check_at = None;
+    if !state.paused
+        && (state.pending()
+            || state.config.as_ref().is_some_and(|config| {
+                config.enabled && (state.phase != Phase::Ready || state.validated_at.is_none())
+            }))
+    {
+        let message = state
+            .message
+            .clone()
+            .unwrap_or_else(|| "席位验证尚未完成".into());
+        state.attention(format!("{message}；请手动重新核对并恢复"));
+    }
 }
 
-/// Full verification may refresh administrator authorization. A paused holder's
-/// quota-only monitoring never calls the administrator API.
+/// Only an active, explicitly requested attempt may refresh administrator authorization.
 pub fn can_refresh_admin(state: &State) -> bool {
-    !state.paused || can_recheck_paused_holder(state)
+    !state.paused
 }
 
-pub fn can_recheck_paused_holder(state: &State) -> bool {
-    state.paused
-        && !state.pending()
-        && state.config.as_ref().is_some_and(|config| config.enabled)
-        && state.holder_account_id.is_some()
-        && state.holder_user_id.is_some()
-        && (matches!(state.phase, Phase::Ready | Phase::Idle)
-            || (state.phase == Phase::NeedsAttention
-                && state.message.as_deref() == Some("调换已暂停，当前成员未确认额度可用")))
-}
-
-async fn monitor_snapshot<B: Backend>(
+async fn read_snapshot<B: Backend>(
     backend: &B,
     state: &mut State,
     retry: bool,
@@ -149,8 +227,8 @@ async fn monitor_snapshot<B: Backend>(
         Ok(snapshot) => Ok(Some(snapshot)),
         Err(error) if retry && error.retryable() => {
             // Failed reads cannot establish a new holder or authorize a mutation.
-            state.message = Some(format!("只读核对暂时失败，稍后重试：{error}"));
-            state.next_check_at = Some(backend.now() + MONITOR_RETRY_SECS);
+            state.message = Some(format!("只读核对暂时失败，请手动核对：{error}"));
+            state.next_check_at = None;
             Ok(None)
         }
         Err(error) => Err(error.into()),
@@ -165,8 +243,7 @@ async fn verify_holder<B: Backend>(
 ) -> Result<bool, String> {
     if state.holder_account_id.as_deref() != Some(holder) || state.validated_at.is_none() {
         backend.probe(holder).await?;
-        let Some((after_probe, after_counts)) = monitor_snapshot(backend, state, true).await?
-        else {
+        let Some((after_probe, after_counts)) = read_snapshot(backend, state, true).await? else {
             return Ok(false);
         };
         if backend.holder(&after_probe).await? != holder || &after_counts != counts {
@@ -181,9 +258,9 @@ async fn verify_holder<B: Backend>(
 }
 
 /// Reuse the last verified holder while its local scope is intact. Only quota
-/// exhaustion reaches the remote seat checks below; monitoring is not a lease
+/// exhaustion reaches the remote seat checks below; verification is not a lease
 /// that a management API outage can expire.
-async fn monitor_verified_holder<B: Backend>(
+async fn check_verified_holder<B: Backend>(
     dir: &Path,
     config: &Config,
     state: &mut State,
@@ -196,12 +273,12 @@ async fn monitor_verified_holder<B: Backend>(
     backend.check_holder_scope(&holder).await?;
     let (evidence, reset) = match backend.quota(&holder).await {
         Ok(quota) => quota,
-        Err(error) if error.retryable() => {
+        Err(error) if error.preserves_publication() => {
             state.message = Some(format!(
-                "额度刷新暂时失败，保留当前持席状态，稍后重试：{}",
+                "额度核对失败，保留当前已验证路由；请按需手动核对：{}",
                 String::from(error)
             ));
-            state.next_check_at = Some(backend.now() + MONITOR_RETRY_SECS);
+            state.next_check_at = None;
             return Ok(true);
         }
         Err(error) => return Err(error.into()),
@@ -214,21 +291,21 @@ async fn monitor_verified_holder<B: Backend>(
             state.exhausted_until.remove(&holder);
             state.message = Some(
                 if paused {
-                    "调换已暂停，当前高级成员已验证，正在监测实时订阅额度"
+                    "调换已暂停，当前高级成员已验证，按实际请求处理额度耗尽"
                 } else {
-                    "高级成员已验证，正在监测实时订阅额度"
+                    "高级成员已验证，按实际请求处理额度耗尽"
                 }
                 .into(),
             );
-            state.next_check_at = Some(backend.now() + MONITOR_CHECK_SECS);
+            state.next_check_at = None;
             Ok(true)
         }
         QuotaEvidence::Unknown => {
             // Unknown is not exhaustion. An exhausted holder also stays blocked
             // until a later read positively confirms availability.
             state.message =
-                Some("实时额度暂时未知，保留当前持席状态，稍后重试；未提交席位调换".into());
-            state.next_check_at = Some(backend.now() + MONITOR_RETRY_SECS);
+                Some("实时额度暂时未知，保留当前持席状态；未安排自动重试或席位调换".into());
+            state.next_check_at = None;
             Ok(true)
         }
         QuotaEvidence::Exhausted => {
@@ -238,8 +315,8 @@ async fn monitor_verified_holder<B: Backend>(
                 .insert(holder, reset.ok_or("耗尽窗口缺少重置时间")?);
             if paused {
                 state.paused = true;
-                state.message = Some("调换已暂停，当前成员额度已耗尽，等待额度恢复".into());
-                state.next_check_at = Some(backend.now() + MONITOR_RETRY_SECS);
+                state.message = Some("调换已暂停，当前成员额度已耗尽，请手动核对恢复".into());
+                state.next_check_at = None;
                 return Ok(true);
             }
             if pause_on_rapid_exhaustion(config, state, backend.now()) {
@@ -255,7 +332,7 @@ async fn monitor_verified_holder<B: Backend>(
                     "额度耗尽，等待最短调换间隔（{} 秒）；平台限制仍优先",
                     MIN_SWAP_INTERVAL_SECS
                 ));
-                state.next_check_at = Some(backend.now() + MONITOR_CHECK_SECS);
+                state.next_check_at = None;
                 return Ok(true);
             }
             Ok(false)
@@ -308,6 +385,7 @@ pub async fn switch_next<B: Backend>(
 ) -> Result<(), String> {
     check_manual_next(dir, config, state, backend.now())?;
     let result = step_with_trigger(dir, config, state, backend, true).await;
+    finish_attempt(state);
     if let Err(error) = &result {
         state.attention(error.clone());
     }
@@ -325,7 +403,7 @@ async fn step_with_trigger<B: Backend>(
         && !state.pending()
         && state.validated_at.is_some()
         && matches!(state.phase, Phase::Ready | Phase::Idle)
-        && monitor_verified_holder(dir, config, state, backend).await?
+        && check_verified_holder(dir, config, state, backend).await?
     {
         return Ok(());
     }
@@ -335,7 +413,7 @@ async fn step_with_trigger<B: Backend>(
         backend.check_scope().await?;
     }
     let retry_read = !manual && !state.pending();
-    let Some((members, counts)) = monitor_snapshot(backend, state, retry_read).await? else {
+    let Some((members, counts)) = read_snapshot(backend, state, retry_read).await? else {
         return Ok(());
     };
     if state.pending() {
@@ -383,16 +461,16 @@ async fn step_with_trigger<B: Backend>(
         Err(error) if !manual && error.retryable() => {
             // Initial validation and switching still require a successful read.
             state.message = Some(format!(
-                "只读额度核对暂时失败，稍后重试：{}",
+                "只读额度核对暂时失败，请手动核对：{}",
                 String::from(error)
             ));
-            state.next_check_at = Some(backend.now() + MONITOR_RETRY_SECS);
+            state.next_check_at = None;
             return Ok(());
         }
         Err(error) => return Err(error.into()),
     };
     if state.paused || pause_path(dir).exists() {
-        if can_recheck_paused_holder(state) || (state.phase == Phase::Ready && !state.pending()) {
+        if state.phase == Phase::Ready && !state.pending() {
             match evidence {
                 QuotaEvidence::Available => {
                     if !verify_holder(backend, state, &holder, &counts).await? {
@@ -401,16 +479,16 @@ async fn step_with_trigger<B: Backend>(
                     state.validated_at = Some(backend.now());
                     state.phase = Phase::Ready;
                     state.message =
-                        Some("调换已暂停，当前高级成员已验证，正在监测实时订阅额度".into());
-                    state.next_check_at = Some(backend.now() + MONITOR_CHECK_SECS);
+                        Some("调换已暂停，当前高级成员已验证，按实际请求处理额度耗尽".into());
+                    state.next_check_at = None;
                 }
                 QuotaEvidence::Unknown | QuotaEvidence::Exhausted => {
                     // Without retained verification, legacy paused holders stay
                     // unpublished until a full check succeeds.
                     state.validated_at = None;
                     state.phase = Phase::Idle;
-                    state.message = Some("调换已暂停，当前成员额度未确认可用，稍后自动核对".into());
-                    state.next_check_at = Some(backend.now() + MONITOR_RETRY_SECS);
+                    state.message = Some("调换已暂停，当前成员额度未确认可用，请手动核对".into());
+                    state.next_check_at = None;
                 }
             }
         } else {
@@ -424,8 +502,8 @@ async fn step_with_trigger<B: Backend>(
                 return Err("实时订阅窗口无法判断；未提交席位调换".into());
             }
             state.phase = Phase::Idle;
-            state.message = Some("实时订阅窗口无法判断；稍后重新核对，未提交席位调换".into());
-            state.next_check_at = Some(backend.now() + MONITOR_RETRY_SECS);
+            state.message = Some("实时订阅窗口无法判断；请手动核对，未提交席位调换".into());
+            state.next_check_at = None;
             return Ok(());
         }
         QuotaEvidence::Available if !manual => {
@@ -443,8 +521,8 @@ async fn step_with_trigger<B: Backend>(
                 Some(backend.member(state.holder_account_id.as_deref().ok_or("持席成员缺失")?)?);
             state.validated_at = Some(backend.now());
             state.phase = Phase::Ready;
-            state.message = Some("高级成员已验证，正在监测实时订阅额度".into());
-            state.next_check_at = Some(backend.now() + MONITOR_CHECK_SECS);
+            state.message = Some("高级成员已验证，按实际请求处理额度耗尽".into());
+            state.next_check_at = None;
             return Ok(());
         }
         QuotaEvidence::Available | QuotaEvidence::Exhausted => {}
@@ -468,7 +546,7 @@ async fn step_with_trigger<B: Backend>(
             "额度耗尽，等待最短调换间隔（{} 秒）；平台限制仍优先",
             MIN_SWAP_INTERVAL_SECS
         ));
-        state.next_check_at = Some(backend.now() + MONITOR_CHECK_SECS);
+        state.next_check_at = None;
         return Ok(());
     }
     let mut target = None;
@@ -519,14 +597,14 @@ async fn step_with_trigger<B: Backend>(
                 "暂无可用的下一位成员，未调换席位。{}",
                 excluded.join("；")
             ));
-            state.next_check_at = Some(backend.now() + MONITOR_CHECK_SECS);
+            state.next_check_at = None;
             return Ok(());
         }
         state.message = Some(format!(
-            "额度耗尽，暂无可用候选，保留现有席位。{}",
+            "额度耗尽，暂无可用候选，保留现有席位，请手动核对。{}",
             excluded.join("；")
         ));
-        state.next_check_at = Some(backend.now() + MONITOR_CHECK_SECS);
+        state.next_check_at = None;
         return Ok(());
     };
     let source = backend.member(&holder)?;
@@ -660,8 +738,9 @@ async fn verify_target<B: Backend>(
     let (evidence, _) = backend.quota(&op.target_account_id).await?;
     if evidence != QuotaEvidence::Available {
         if backend.now() - op.submitted_at.unwrap_or(op.created_at) < VERIFY_TIMEOUT_SECS {
-            state.message = Some("席位已调换，等待目标成员实时额度生效；暂不发布路由".into());
-            state.next_check_at = Some(backend.now() + MONITOR_TICK_SECS as i64);
+            state.message =
+                Some("席位已调换，目标成员实时额度尚未生效；请手动核对，暂不发布路由".into());
+            state.next_check_at = None;
             return Ok(());
         }
         return Err("调换后目标成员额度未通过验证，已暂停；不会连续调换给其他成员".into());
@@ -697,6 +776,6 @@ async fn verify_target<B: Backend>(
     state.validated_at = Some(backend.now());
     state.phase = Phase::Ready;
     state.message = Some("席位、身份、实时额度与定向请求均验证成功，已切换有效路由".into());
-    state.next_check_at = Some(backend.now() + MONITOR_CHECK_SECS);
+    state.next_check_at = None;
     Ok(())
 }

@@ -13,9 +13,6 @@ use std::{
 pub const VERIFY_TIMEOUT_SECS: i64 = 180;
 pub const MIN_SWAP_INTERVAL_SECS: i64 = 300;
 pub const RAPID_EXHAUSTION_WINDOW_SECS: i64 = 30 * 60;
-pub const MONITOR_CHECK_SECS: i64 = 60;
-pub const MONITOR_RETRY_SECS: i64 = 30;
-pub const MONITOR_TICK_SECS: u64 = 30;
 pub const DRAIN_TIMEOUT_SECS: u64 = 60;
 
 /// Keep temporary quota reads distinct from authorization/identity failures.
@@ -23,6 +20,7 @@ pub const DRAIN_TIMEOUT_SECS: u64 = 60;
 #[derive(Debug)]
 pub struct QuotaReadError {
     retryable: bool,
+    query_only: bool,
     message: String,
 }
 
@@ -30,12 +28,17 @@ impl QuotaReadError {
     pub fn temporary(message: &str) -> Self {
         Self {
             retryable: true,
+            query_only: true,
             message: message.into(),
         }
     }
 
     pub fn retryable(&self) -> bool {
         self.retryable
+    }
+
+    pub fn preserves_publication(&self) -> bool {
+        self.query_only
     }
 
     pub fn from_fetch(error: &str) -> Self {
@@ -50,6 +53,7 @@ impl QuotaReadError {
         if let Some(status) = status {
             return Self {
                 retryable: matches!(status, 408 | 429 | 500..=599),
+                query_only: true,
                 message: format!("实时额度查询失败（HTTP {status}）；未触发调换"),
             };
         }
@@ -61,6 +65,7 @@ impl From<&str> for QuotaReadError {
     fn from(message: &str) -> Self {
         Self {
             retryable: false,
+            query_only: false,
             message: message.into(),
         }
     }
@@ -70,6 +75,7 @@ impl From<String> for QuotaReadError {
     fn from(message: String) -> Self {
         Self {
             retryable: false,
+            query_only: false,
             message,
         }
     }
@@ -247,6 +253,7 @@ pub struct State {
     /// Exhausted holders cannot immediately receive the same seat again.
     pub exhausted_until: BTreeMap<String, i64>,
     pub message: Option<String>,
+    /// Legacy JSON compatibility only; request-driven coordination never schedules a check.
     pub next_check_at: Option<i64>,
 }
 
@@ -323,9 +330,7 @@ impl State {
         }
         self.phase == Phase::Ready
             && self.holder_account_id.as_deref() == Some(account)
-            && self
-                .validated_at
-                .is_some_and(|at| at <= now)
+            && self.validated_at.is_some_and(|at| at <= now)
     }
 }
 
@@ -336,7 +341,8 @@ pub fn load(dir: &Path) -> Result<State, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(State::default()),
         Err(_) => return Err("无法读取席位状态；已阻止路由".into()),
     };
-    let state: State = serde_json::from_slice(&raw).map_err(|_| "席位状态损坏；已阻止路由")?;
+    let mut state: State = serde_json::from_slice(&raw).map_err(|_| "席位状态损坏；已阻止路由")?;
+    state.next_check_at = None;
     if state.version != 1 {
         return Err("不支持的席位状态版本".into());
     }

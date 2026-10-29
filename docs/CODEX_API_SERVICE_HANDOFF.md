@@ -96,7 +96,7 @@ profile, especially for WSL.
 - Session affinity is enabled by default. Routing also observes cooldown and
   account-health state; retries are bounded by the configured credential count and
   delay. Subscription quota cooldown shares the [availability predicate](../src-tauri/src/modules/codex_seat_rotation.rs)
-  documented in [premium seat monitoring](codex-premium-seat-rotation.md#自动流程).
+  documented in [request-triggered seat rotation](codex-premium-seat-rotation.md#自动流程).
 - Named API keys can be disabled, limited by allowed/excluded models, and assigned
   a model prefix. The primary collection key remains for backward compatibility.
 - Bound OAuth quota reserve can exclude an OAuth account when its fresh hourly or

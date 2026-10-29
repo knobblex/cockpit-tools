@@ -1373,6 +1373,9 @@ impl native_contract::Host for NativeHostBridge {
             if current && official_feedback {
                 self.record_failure_cooldown(&report);
                 self.record_soft_binding_result(&report).await;
+                if self.collection_override.is_none() {
+                    note_premium_seat_request(&report);
+                }
             }
             let diagnostics = report.diagnostics.as_ref();
             let proxy_route = diagnostics

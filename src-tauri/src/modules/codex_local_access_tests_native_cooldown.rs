@@ -19,6 +19,7 @@ fn native_cooldown_report(status: u16, error: &str) -> native_contract::RequestR
         elapsed: Duration::ZERO,
         usage: None,
         error: Some(error.into()),
+        upstream_error_code: None,
         error_message: None,
         credential_scope: false,
         retry_after: None,
@@ -26,6 +27,47 @@ fn native_cooldown_report(status: u16, error: &str) -> native_contract::RequestR
         response_service_tier: None,
         reasoning_effort: None,
     }
+}
+
+#[test]
+fn premium_seat_request_trigger_ignores_successes_generic_errors_and_unrelated_routes() {
+    let mut normalized = native_cooldown_report(429, "upstream_error");
+    normalized.upstream_error_code = Some("usage_limit_reached".into());
+    assert!(premium_seat_request_exhausted(&normalized));
+    for code in [
+        "usage_limit_reached",
+        "insufficient_quota",
+        "quota_exceeded",
+    ] {
+        let mut report = native_cooldown_report(429, code);
+        assert!(premium_seat_request_exhausted(&report));
+        report.success = true;
+        assert!(!premium_seat_request_exhausted(&report));
+    }
+    for (status, code) in [
+        (429, "rate_limit_exceeded"),
+        (401, "token_revoked"),
+        (502, "upstream_unavailable"),
+    ] {
+        assert!(!premium_seat_request_exhausted(&native_cooldown_report(
+            status, code
+        )));
+    }
+    let mut report = native_cooldown_report(429, "usage_limit_reached");
+    report.caller.id = NATIVE_INTERNAL_CALLER.into();
+    assert!(!premium_seat_request_exhausted(&report));
+    report.caller.id = "fixture-key-id".into();
+    report.official_registration_id = Some("official".into());
+    assert!(!premium_seat_request_exhausted(&report));
+    report.official_registration_id = None;
+    report.upstream_model = "gpt-reserve".into();
+    assert!(!premium_seat_request_exhausted(&report));
+    report.upstream_model = "fixture-model".into();
+    report.diagnostics = Some(native_api::diagnostics::DiagnosticContext {
+        upstream_request_scoped: true,
+        ..Default::default()
+    });
+    assert!(!premium_seat_request_exhausted(&report));
 }
 
 #[test]
