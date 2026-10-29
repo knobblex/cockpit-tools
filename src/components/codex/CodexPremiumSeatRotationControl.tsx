@@ -21,7 +21,9 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
 }) {
   const [state, setState] = useState<PremiumSeatState | null>(null);
   const [draft, setDraft] = useState<PremiumSeatConfig>(empty);
-  const [loaded, setLoaded] = useState(false);
+  const [loadStatus, setLoadStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [loadError, setLoadError] = useState("");
+  const [readCycle, setReadCycle] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -29,21 +31,43 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
   const formId = useId();
   const pending = useRef(false);
   const dirty = useRef(false);
+  const loaded = loadStatus === "ready";
   useEffect(() => {
     let alive = true;
+    let reading = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    setLoadStatus("loading");
+    setLoadError("");
     const refresh = async () => {
+      if (reading || pending.current) return;
+      reading = true;
       try {
-        const next = await getPremiumSeat();
+        const next = await Promise.race([
+          getPremiumSeat(),
+          new Promise<never>((_, reject) => {
+            deadline = setTimeout(() => reject(new Error("读取席位状态超时，请重试")), 10_000);
+          }),
+        ]);
         if (!alive || pending.current) return;
         setState(next);
         if (!dirty.current) setDraft(poolDraft(next.config));
-        setLoaded(true);
-      } catch (e) { if (alive) setError(String(e)); }
+        setLoadError("");
+        setLoadStatus("ready");
+      } catch (e) {
+        if (alive && !pending.current) {
+          setLoadError(String(e));
+          setLoadStatus("error");
+          clearInterval(timer);
+        }
+      } finally {
+        if (deadline !== undefined) clearTimeout(deadline);
+        reading = false;
+      }
     };
-    void refresh();
     const timer = setInterval(() => void refresh(), 5000);
-    return () => { alive = false; clearInterval(timer); };
-  }, []);
+    void refresh();
+    return () => { alive = false; clearInterval(timer); if (deadline !== undefined) clearTimeout(deadline); };
+  }, [readCycle]);
   const teamAccounts = accounts.filter(isPremiumSeatTeamAccount);
   const poolMembers = (config: PremiumSeatConfig) => {
     const key = collection?.apiKeys.find((k) => k.id === config.apiKeyId && ordinaryKey(k));
@@ -87,18 +111,18 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
   const saveDisabled = formDisabled || (draft.enabled && (!native || Boolean(draftEligibilityReason)));
   const enableDisabled = formDisabled || (!draft.enabled && (!native || Boolean(draftEligibilityReason)));
   const enabled = Boolean(state?.config?.enabled);
-  const statusTone = state?.phase === "needs_attention" ? "error" : enabled && !state?.paused ? "success" : "muted";
-  const statusLabel = !loaded ? "加载中" : state?.paused ? "已暂停" : enabled ? phases[state!.phase] : "未启用";
+  const statusTone = loadStatus === "error" || state?.phase === "needs_attention" ? "error" : enabled && !state?.paused ? "success" : "muted";
+  const statusLabel = loadStatus === "loading" ? "加载中" : loadStatus === "error" ? "读取失败" : state?.paused ? "已暂停" : enabled ? phases[state!.phase] : "未启用";
   const savedKey = collection?.apiKeys.find((k) => k.id === state?.config?.apiKeyId);
-  const nextDisabledReason = busy ? "正在处理席位操作" : !loaded ? "正在加载配置"
+  const nextDisabledReason = busy ? "正在处理席位操作" : !loaded ? (loadStatus === "error" ? "请先重新加载席位状态" : "正在加载配置")
     : dirty.current ? "请先保存配置修改" : !native ? "请先启用原生 Rust API 网关"
     : !enabled ? "请先保存并启用席位调换配置" : unresolved ? "请先核对未完成的席位操作"
     : savedEligibilityReason || (state?.paused ? "请先重新核对并恢复" : state?.phase !== "ready" ? "等待当前高级成员验证通过" : "");
   const pauseDisabled = busy || !loaded || (!enabled && !unresolved) || Boolean(state?.paused);
   const resumeDisabled = busy || !loaded || !state?.paused || (!unresolved && (!enabled || Boolean(savedEligibilityReason)));
   // Loading saved state still runs above so removing the last team cannot hide recovery.
-  if (!teamAccounts.length && !state?.config && !unresolved && !error) return null;
-  return <section className="codex-api-service-panel premium-seat-control" aria-busy={busy}>
+  if (!teamAccounts.length && !state?.config && !unresolved && !error && !loadError) return null;
+  return <section className="codex-api-service-panel premium-seat-control" aria-busy={busy || loadStatus === "loading"}>
     <div className="premium-seat-header">
       <div className="premium-seat-heading">
         <h2>高级席位自动调换</h2>
@@ -180,6 +204,9 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
       {unresolved && <button type="button" className="btn btn-secondary btn-sm" disabled={busy || !state?.paused} onClick={() => { if (!busy && state?.paused) void run(() => controlPremiumSeat("resolve_unapplied")); }}>核对并确认未执行</button>}
     </div>}
     {busy && <p className="premium-seat-feedback" role="status"><RefreshCw size={13} className="loading-spinner" />正在处理，请稍候…</p>}
+    {loadError && <div role="alert" className="premium-seat-callout premium-seat-error"><CircleAlert size={14} /><span>{loadError}</span>
+      <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setReadCycle((cycle) => cycle + 1)}><RefreshCw size={14} />重新加载</button>
+    </div>}
     {error && <div role="alert" className="premium-seat-callout premium-seat-error"><CircleAlert size={14} /><span>{error}</span></div>}
   </section>;
 }

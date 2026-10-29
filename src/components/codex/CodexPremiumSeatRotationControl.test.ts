@@ -36,11 +36,14 @@ function collection(patch: Partial<CodexLocalAccessCollection> = {}): CodexLocal
       allowedModels: [], excludedModels: [], tokenUsed: 0, createdAt: 1, updatedAt: 1 }],
     ...patch } as CodexLocalAccessCollection;
 }
-function harness(initialAccounts = [account('admin'), account('member')], initialState = state(), initialCollection = collection()) {
+function harness(initialAccounts = [account('admin'), account('member')], initialState = state(), initialCollection = collection(), options: { failInitialLoad?: boolean; delayInitialLoad?: boolean } = {}) {
   let accounts = initialAccounts;
   let remote = initialState;
   let currentCollection = initialCollection;
-  let loadFailure = false;
+  let loadFailure = Boolean(options.failInitialLoad);
+  let pendingLoad = options.delayInitialLoad ? deferred<PremiumSeatState>() : undefined;
+  const timeouts = new Map<number, () => void>();
+  let nextTimeout = 0;
   let poll: (() => Promise<void>) | undefined;
   let pendingControl: ReturnType<typeof deferred<PremiumSeatState>> | undefined;
   const calls = { get: 0, checked: [] as PremiumSeatConfig[], configured: [] as PremiumSeatConfig[], actions: [] as string[] };
@@ -48,7 +51,7 @@ function harness(initialAccounts = [account('admin'), account('member')], initia
     '../SingleSelectDropdown': { SingleSelectDropdown: 'Dropdown' },
     '../../utils/codexPremiumSeatEligibility': eligibility,
     '../../services/codexPremiumSeatService': {
-      async getPremiumSeat() { calls.get++; if (loadFailure) throw new Error('Cannot read saved state'); return remote; },
+      async getPremiumSeat() { calls.get++; if (loadFailure) throw new Error('Cannot read saved state'); return pendingLoad ? pendingLoad.promise : remote; },
       async checkPremiumSeat(value: PremiumSeatConfig) { calls.checked.push(value); return remote; },
       async configurePremiumSeat(value: PremiumSeatConfig) {
         calls.configured.push(value); remote = { ...remote, config: value }; return remote;
@@ -60,7 +63,9 @@ function harness(initialAccounts = [account('admin'), account('member')], initia
         return remote;
       },
     },
-  }, { setInterval(callback: () => Promise<void>) { poll = callback; return 1; }, clearInterval() { poll = undefined; } });
+  }, { setInterval(callback: () => Promise<void>) { poll = callback; return 1; }, clearInterval() { poll = undefined; },
+    setTimeout(callback: () => void) { const id = ++nextTimeout; timeouts.set(id, callback); return id; },
+    clearTimeout(id: number) { timeouts.delete(id); } });
   hook.render(() => hook.exports.CodexPremiumSeatRotationControl({ accounts, collection: currentCollection }));
   const tree = () => nodes(hook.flush());
   const button = (label: string) => tree().find((node) => node.type === 'button' && text(node) === label)!;
@@ -69,6 +74,10 @@ function harness(initialAccounts = [account('admin'), account('member')], initia
   return { hook, tree, button, dropdown, toggle, calls, visible: () => text(hook.flush()),
     setAccounts(next: CodexAccount[]) { accounts = next; }, setCollection(next: CodexLocalAccessCollection) { currentCollection = next; },
     setRemote(next: PremiumSeatState) { remote = next; }, failLoad() { loadFailure = true; },
+    recoverLoad() { loadFailure = false; pendingLoad = undefined; },
+    delayLoad() { pendingLoad = deferred<PremiumSeatState>(); return pendingLoad; },
+    get delayedLoad() { return pendingLoad; },
+    async expireRead() { const [id, callback] = [...timeouts.entries()][0]; timeouts.delete(id); callback(); await settlePromises(); },
     async poll() { await poll?.(); await settlePromises(); },
     delayControl() { pendingControl = deferred<PremiumSeatState>(); return pendingControl; } };
 }
@@ -251,5 +260,74 @@ test('a failed saved-state read remains visible even without team accounts', asy
   const h = harness([]); await settlePromises();
   h.failLoad(); await h.poll();
   assert.match(h.visible(), /Cannot read saved state/);
+  h.hook.unmount();
+});
+
+test('initial read errors end loading, stop automatic retries, and recover only on manual reload', async () => {
+  const h = harness(undefined, state(), undefined, { failInitialLoad: true });
+  await settlePromises();
+  assert.match(h.visible(), /读取失败/);
+  assert.doesNotMatch(h.visible(), /加载中/);
+  assert.match(h.visible(), /Cannot read saved state/);
+  assert.equal(h.button('保存配置').props.disabled, true);
+  assert.equal(h.toggle().props.disabled, true);
+  await h.poll();
+  assert.equal(h.calls.get, 1, 'a rejected state read must not be polled repeatedly');
+  h.recoverLoad();
+  h.button('重新加载').props.onClick(); h.hook.flush(); await settlePromises();
+  assert.equal(h.calls.get, 2);
+  assert.match(h.visible(), /未启用/);
+  assert.doesNotMatch(h.visible(), /Cannot read saved state|读取失败|加载中/);
+  assert.deepEqual(h.calls.checked, []);
+  assert.deepEqual(h.calls.actions, []);
+  h.hook.unmount();
+});
+
+test('an unanswered state read times out and its late response cannot overwrite a retry', async () => {
+  const h = harness(undefined, state(), undefined, { delayInitialLoad: true });
+  const late = h.delayedLoad!;
+  assert.match(h.visible(), /加载中/);
+  await h.expireRead();
+  assert.match(h.visible(), /读取失败/);
+  assert.match(h.visible(), /读取席位状态超时/);
+  assert.equal(h.toggle().props.disabled, true);
+  await h.poll();
+  assert.equal(h.calls.get, 1);
+  h.recoverLoad();
+  h.button('重新加载').props.onClick(); h.hook.flush(); await settlePromises();
+  assert.match(h.visible(), /未启用/);
+  late.resolve(state({ config: config({ enabled: true }), phase: 'ready' }));
+  await settlePromises();
+  assert.equal(h.toggle().props.checked, false, 'the timed-out result cannot enable or replace the loaded configuration');
+  assert.doesNotMatch(h.visible(), /读取失败|读取席位状态超时/);
+  assert.deepEqual(h.calls.actions, []);
+  h.hook.unmount();
+});
+
+test('local state refreshes do not overlap or trigger remote seat actions', async () => {
+  const h = harness(); await settlePromises();
+  const pending = h.delayLoad();
+  await h.poll(); await h.poll();
+  assert.equal(h.calls.get, 2, 'one initial read and one in-flight refresh');
+  pending.resolve(state()); await settlePromises(); h.recoverLoad();
+  await h.poll();
+  assert.equal(h.calls.get, 3);
+  assert.deepEqual(h.calls.checked, []);
+  assert.deepEqual(h.calls.configured, []);
+  assert.deepEqual(h.calls.actions, []);
+  h.hook.unmount();
+});
+
+test('successful local reads do not erase manual operation failures', async () => {
+  const h = harness(undefined, state({ config: config({ enabled: true }), phase: 'ready' }));
+  await settlePromises();
+  const pending = h.delayControl();
+  h.button('切换下一位').props.onClick();
+  pending.reject(new Error('Seat operation failed'));
+  await settlePromises();
+  assert.match(h.visible(), /Seat operation failed/);
+  await h.poll();
+  assert.match(h.visible(), /Seat operation failed/);
+  assert.deepEqual(h.calls.actions, ['next']);
   h.hook.unmount();
 });
