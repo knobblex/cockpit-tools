@@ -342,7 +342,7 @@ Devido aos mecanismos de segurança do macOS, apps que não foram baixados da Ap
 
 ### Pré-requisitps
 
-- Node.js v18+
+- Node.js ([configuração de build](.github/workflows/build-matrix.yml))
 - npm v9+
 - Rust (Tauri runtime)
 

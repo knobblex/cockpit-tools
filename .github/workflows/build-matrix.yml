@@ -43,7 +43,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -70,7 +70,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -97,14 +97,8 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: "npm"
-
-      - name: 🐹 Go setup
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: sidecars/cockpit-cliproxy/go.mod
-          cache-dependency-path: sidecars/cockpit-cliproxy/go.sum
 
       - name: 🦀 Rust setup for local customizations
         if: inputs.source_ref != '' || hashFiles('tests/codex-seat-rotation/Cargo.toml') != ''
@@ -123,8 +117,6 @@ jobs:
       - name: 🧪 Release script tests
         run: npm run test:release
 
-      - name: 🐹 Go sidecar tests
-        run: npm run test:go
 
   preflight-ts-windows:
     name: "🪟 Preflight: TypeScript Tests"
@@ -141,7 +133,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -223,16 +215,10 @@ jobs:
           cargo test quick_config_catalog_only_context_preservation --lib
           cargo test claude_desktop_gateway --lib --locked
 
-      - name: 🐹 Go setup
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: sidecars/cockpit-cliproxy/go.mod
-          cache-dependency-path: sidecars/cockpit-cliproxy/go.sum
-
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -300,6 +286,11 @@ jobs:
           else
             echo "Log file not found"
           fi
+
+      - name: 🔍 Verify macOS app signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: codesign --verify --deep --strict --verbose=2 "${{ matrix.release_dir }}/bundle/macos/Cockpit Tools.app"
 
       - name: 📊 Summarize build warnings
         if: always()

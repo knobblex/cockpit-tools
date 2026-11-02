@@ -426,7 +426,7 @@ Due to macOS security mechanisms, apps not downloaded from the App Store may tri
 
 ### Prerequisites
 
-- Node.js v18+
+- Node.js ([build configuration](.github/workflows/build-matrix.yml))
 - npm v9+
 - Rust (Tauri runtime)
 
