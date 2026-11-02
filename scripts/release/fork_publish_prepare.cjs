@@ -2,20 +2,13 @@
 // Runs from the trusted default branch. Candidate files are parsed, never executed.
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
+const { VERSION: versionPattern, compareVersions: compare, forkUpstream } = require('./fork-version.cjs');
 
 const shaPattern = /^[a-f0-9]{40}$/;
-const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const branch = 'codex/local-customizations';
 
 function git(...args) {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 }).trim();
-}
-
-function compare(a, b) {
-  const aa = a.split('.').map(BigInt);
-  const bb = b.split('.').map(BigInt);
-  for (let i = 0; i < 3; i += 1) if (aa[i] !== bb[i]) return aa[i] > bb[i] ? 1 : -1;
-  return 0;
 }
 
 async function main() {
@@ -27,8 +20,17 @@ async function main() {
   if (!shaPattern.test(source) || (expected && source !== expected)) {
     throw new Error('Customization branch changed after the successful build');
   }
-  const version = JSON.parse(git('show', `${source}:package.json`)).version;
+  const packageJson = JSON.parse(git('show', `${source}:package.json`));
+  const version = packageJson.version;
   if (typeof version !== 'string' || !versionPattern.test(version)) throw new Error('Expected a stable package version');
+  const upstream = forkUpstream(packageJson);
+  if (upstream) {
+    git('merge-base', '--is-ancestor', upstream.commit, source);
+    if (JSON.parse(git('show', `${upstream.commit}:package.json`)).version !== upstream.version
+        || compare(version, upstream.version) < 0) {
+      throw new Error('Fork upstream baseline does not match the included source and release version');
+    }
+  }
   const candidateConfig = JSON.parse(git('show', `${source}:src-tauri/tauri.conf.json`));
   const controllerConfig = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
   if (JSON.stringify(candidateConfig.plugins?.updater) !== JSON.stringify(controllerConfig.plugins?.updater)) {
@@ -51,7 +53,7 @@ async function main() {
     changed = order > 0;
   }
   fs.appendFileSync(process.env.GITHUB_OUTPUT,
-    `changed=${changed}\nsource=${source}\nversion=${version}\ntag=fork-v${version}\n`);
+    `changed=${changed}\nsource=${source}\nversion=${version}\nupstream_version=${upstream?.version || version}\ntag=fork-v${version}\n`);
   fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
     `## Fork updater\n\n${changed ? 'Ready to build and publish' : 'This version is already published'}: \`${version}\` (\`${source}\`).\n`);
 }

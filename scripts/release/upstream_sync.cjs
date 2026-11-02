@@ -2,10 +2,11 @@
 // This controller runs from the trusted workflow checkout, never from candidate code.
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { spawnSync } = require('node:child_process');
+const { VERSION, VERSION_FILES, compareVersions, nextForkVersion, forkUpstream, versionFile } = require('./fork-version.cjs');
 
 const SHA = /^[a-f0-9]{40}$/;
-const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const CANDIDATE = /^sync\/upstream-([1-9]\d*)-([a-f0-9]{40})-([a-f0-9]{40})$/;
 
 function assertRepository(value) {
@@ -34,14 +35,6 @@ function validateRelease(release) {
   }
   releaseVersion(release.tag_name);
   return release;
-}
-
-function compareVersions(left, right) {
-  if (!VERSION.test(left) || !VERSION.test(right)) throw new Error('package.json must use a stable numeric version');
-  const a = left.split('.').map(BigInt);
-  const b = right.split('.').map(BigInt);
-  for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
-  return 0;
 }
 
 function runGit(repoRoot, args) {
@@ -97,8 +90,9 @@ function context(options, dependencies) {
     git(['fetch', '--no-tags', remote, `+${ref}:${destination}`]);
     return assertSha(git(['rev-parse', `${destination}^{commit}`]));
   };
+  const packageAt = (sha) => JSON.parse(git(['show', `${assertSha(sha)}:package.json`]));
   const versionAt = (sha) => {
-    const version = JSON.parse(git(['show', `${assertSha(sha)}:package.json`])).version;
+    const version = packageAt(sha).version;
     if (typeof version !== 'string' || !VERSION.test(version)) throw new Error('package.json must use a stable numeric version');
     return version;
   };
@@ -108,14 +102,112 @@ function context(options, dependencies) {
     if (!result.error && result.status === 1) return false;
     throw new Error('Could not verify commit ancestry');
   };
-  const validateCandidate = (candidate, base, upstream, version) => {
+  const upstreamBasis = (base, upstream) => {
+    let basis = forkUpstream(packageAt(base));
+    if (!basis) {
+      // Migrate old forks only while their application version still identifies
+      // the common upstream baseline. A detached fork version needs explicit data.
+      const common = git(['merge-base', '--all', base, upstream]).split('\n');
+      if (common.length !== 1 || !SHA.test(common[0])) throw new Error('Upstream baseline is ambiguous; record forkUpstream first');
+      basis = { version: versionAt(common[0]), commit: common[0] };
+      if (versionAt(base) !== basis.version) throw new Error('Independent fork versions require package.json.forkUpstream');
+    }
+    if (!ancestor(basis.commit, base) || versionAt(basis.commit) !== basis.version) {
+      throw new Error('forkUpstream does not identify an included upstream commit and version');
+    }
+    return basis;
+  };
+  const validateIncoming = (base, upstream, upstreamVersion) => {
+    const basis = upstreamBasis(base, upstream);
+    if (!ancestor(basis.commit, upstream)) throw new Error('Refusing upstream history that no longer contains the recorded baseline');
+    if (compareVersions(upstreamVersion, basis.version) <= 0) {
+      throw new Error('Refusing an upstream downgrade or a different commit for the same version');
+    }
+    return nextForkVersion(versionAt(base), upstreamVersion);
+  };
+  const validateCandidate = (candidate, base, upstream, upstreamVersion) => {
     const parents = git(['show', '-s', '--format=%P', assertSha(candidate)]).split(' ');
     if (parents.length !== 2 || parents[0] !== base || parents[1] !== upstream || !ancestor(base, candidate)) {
       throw new Error('Candidate is not the exact two-parent merge of the captured customization and upstream commits');
     }
-    if (versionAt(candidate) !== version) throw new Error('Candidate package version differs from the upstream release tag');
+    const version = validateIncoming(base, upstream, upstreamVersion);
+    const basis = forkUpstream(packageAt(candidate));
+    if (!basis || basis.version !== upstreamVersion || basis.commit !== upstream) {
+      throw new Error('Candidate upstream baseline differs from the captured release');
+    }
+    for (const file of VERSION_FILES) {
+      const values = versionFile(file, git(['show', `${candidate}:${file}`]), version, basis).versions;
+      if (values.some((value) => value !== version)) throw new Error(`Candidate version mismatch in ${file}`);
+    }
   };
-  return { git, run, tip, fetchRef, versionAt, ancestor, validateCandidate, targetRef, upstreamUrl, upstreamRepository };
+  return { git, run, tip, fetchRef, versionAt, ancestor, validateIncoming, validateCandidate, repoRoot, targetRef, upstreamUrl, upstreamRepository };
+}
+
+function regularVersionPath(repoRoot, file) {
+  let current = repoRoot;
+  const parts = file.split('/');
+  for (const [index, part] of parts.entries()) {
+    current = path.join(current, part);
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink() || (index === parts.length - 1 ? !stat.isFile() : !stat.isDirectory())) {
+      throw new Error(`Version path must be a regular repository file: ${file}`);
+    }
+  }
+  return current;
+}
+
+function prepareVersionedMerge(ctx, base, upstream, upstreamVersion, message) {
+  const version = ctx.validateIncoming(base, upstream, upstreamVersion);
+  const basis = { version: upstreamVersion, commit: upstream };
+  const merge = ctx.run(['merge', '--no-ff', '--no-commit', '-m', message, upstream]);
+  const written = new Set();
+  try {
+    const conflicts = ctx.git(['diff', '--name-only', '--diff-filter=U']).split('\n').filter(Boolean);
+    if (merge.error || (merge.status !== 0 && !conflicts.length) || conflicts.some((file) => !VERSION_FILES.includes(file))) {
+      throw new Error('Unresolved application changes require a manual merge');
+    }
+    const resolved = new Map();
+    for (const file of conflicts) {
+      // Strip only application versions and our upstream identity, then let Git
+      // merge every other field normally. Dependency/business conflicts still stop.
+      const work = fs.mkdtempSync(path.join(os.tmpdir(), 'cockpit-version-merge-'));
+      try {
+        const inputs = [2, 1, 3].map((stage, index) => {
+          const target = path.join(work, String(index));
+          const content = ctx.git(['show', `:${stage}:${file}`]);
+          fs.writeFileSync(target, versionFile(file, content, '0.0.0', null).text);
+          return target;
+        });
+        const result = ctx.run(['merge-file', '-p', ...inputs]);
+        if (result.error || result.status !== 0) throw new Error(`Non-version conflict in ${file}`);
+        resolved.set(file, result.stdout);
+      } finally {
+        fs.rmSync(work, { recursive: true, force: true });
+      }
+    }
+    // Validate the complete set before changing any version file. In particular,
+    // a late invalid/symlink manifest must not strand a half-written merge.
+    const prepared = VERSION_FILES.map((file) => {
+      const target = regularVersionPath(ctx.repoRoot, file);
+      const content = resolved.get(file) ?? fs.readFileSync(target, 'utf8');
+      return { file, target, content: versionFile(file, content, version, basis).text };
+    });
+    for (const { file, target, content } of prepared) {
+      written.add(file);
+      fs.writeFileSync(target, content);
+    }
+    ctx.git(['add', '--', ...VERSION_FILES]);
+    ctx.git(['commit', '--no-edit']);
+    return assertSha(ctx.git(['rev-parse', 'HEAD']));
+  } catch (error) {
+    // This isolated checkout was clean and the unfinished merge belongs to us.
+    // Index our own partial writes so --abort can restore them even after an I/O
+    // or commit failure; no candidate code or user work is executed or staged.
+    if (written.size) ctx.run(['add', '--', ...written]);
+    const aborted = ctx.run(['merge', '--abort']);
+    const cleanup = aborted.error || aborted.status !== 0 ? ' The isolated checkout could not be restored.' : '';
+    throw new Error(`Upstream merge failed: ${error.message}. The customization branch is unchanged and the attempt marker is retained for manual retry.${cleanup}`);
+  }
 }
 
 async function latestRelease(repository, token, fetchImpl = fetch) {
@@ -145,7 +237,7 @@ async function prepare(options, dependencies = {}) {
   if (ctx.versionAt(upstream) !== version) throw new Error('Upstream tag differs from its package.json version');
   const identity = { base_sha: base, upstream_sha: upstream, release_tag: release.tag_name };
   if (ctx.ancestor(upstream, base)) return { changed: false, ...identity, reason: 'The customization branch already contains this release.' };
-  if (compareVersions(version, ctx.versionAt(base)) <= 0) throw new Error('Refusing an upstream downgrade or a different commit for the same version');
+  const candidateVersion = ctx.validateIncoming(base, upstream, version);
   const branch = candidateBranch(release.id, base, upstream);
   const ref = `refs/heads/${branch}`;
   let existing = ctx.tip(ref);
@@ -163,13 +255,8 @@ async function prepare(options, dependencies = {}) {
   if (existing === base) {
     if (ctx.git(['status', '--porcelain']).length) throw new Error('Refusing to merge into a dirty controller checkout');
     ctx.git(['checkout', '--detach', base]);
-    const merge = ctx.run(['merge', '--no-ff', '--no-edit', '-m', `Merge upstream ${release.tag_name} into ${options.targetBranch}`, upstream]);
-    if (merge.error || merge.status !== 0) {
-      // This checkout was clean and the merge belongs to this controller alone.
-      ctx.run(['merge', '--abort']);
-      throw new Error('Upstream merge failed. The customization branch is unchanged and the attempt marker is retained for manual retry.');
-    }
-    candidate = assertSha(ctx.git(['rev-parse', 'HEAD']));
+    candidate = prepareVersionedMerge(ctx, base, upstream, version,
+      `Merge upstream ${release.tag_name} into ${options.targetBranch}`);
     ctx.validateCandidate(candidate, base, upstream, version);
     // The candidate is proven to be a fast-forward of the marker before this CAS.
     ctx.git(['push', `--force-with-lease=${ref}:${base}`, 'origin', `${candidate}:${ref}`]);
@@ -178,7 +265,7 @@ async function prepare(options, dependencies = {}) {
     if (candidate !== existing) throw new Error('Candidate changed while preparing a retry');
     ctx.validateCandidate(candidate, base, upstream, version);
   }
-  return { changed: true, ...identity, candidate_sha: candidate, candidate_branch: branch,
+  return { changed: true, ...identity, candidate_sha: candidate, candidate_branch: branch, candidate_version: candidateVersion,
     reason: 'Candidate prepared; the customization branch will advance only after all checks and builds succeed.' };
 }
 
@@ -200,7 +287,7 @@ async function promote(options, dependencies = {}) {
   if (ctx.fetchRef(ctx.upstreamUrl, `refs/tags/${options.releaseTag}`, 'refs/upstream-sync/upstream') !== upstream) {
     throw new Error('Upstream tag changed during the build');
   }
-  if (ctx.versionAt(upstream) !== version || compareVersions(version, ctx.versionAt(base)) <= 0) {
+  if (ctx.versionAt(upstream) !== version) {
     throw new Error('Release version no longer matches the captured upgrade');
   }
   ctx.validateCandidate(candidate, base, upstream, version);

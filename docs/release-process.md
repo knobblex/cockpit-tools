@@ -161,16 +161,36 @@ GitHub 公共 latest 路由可能晚于 Release 状态变更。如果公开校�
 
 [`upstream-sync.yml`](../.github/workflows/upstream-sync.yml) 是同步入口及上游仓库、目标分支、定时周期的唯一配置源；仅在该文件指定的 Fork 默认分支运行。它定期查询上游最新正式 Release，忽略草稿和预发布版，不跟随尚未发版的 `main` 提交。定时任务按 GitHub 调度执行，可能延迟；公开仓库长期无活动时可能被停用，见 [GitHub schedule 规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
 
-[`upstream_sync.cjs`](../scripts/release/upstream_sync.cjs) 校验版本标签、对应提交及 `package.json.version`，拒绝降级或同版本替换。已合入的版本直接跳过；新版本先从当前定制分支创建 `sync/upstream-*` 候选，正常合并上游，保留本地修改。候选引用也记录该上游提交与本地基线的尝试；候选准备或构建失败、取消时不启动晋升，已有尝试默认不重复打包。候选引用保留作排障证据，不用于正式发布。
+[`upstream_sync.cjs`](../scripts/release/upstream_sync.cjs) 校验上游版本标签、提交及其 `package.json.version`，并与本 Fork 的 `package.json.forkUpstream` 基线核对，拒绝上游降级或同版本替换。已合入的提交直接跳过；新版本先从当前定制分支创建 `sync/upstream-*` 候选，正常合并上游，保留本地修改。候选引用记录该上游提交与本地基线的尝试；候选准备或构建失败、取消时不启动晋升，已有尝试默认不重复打包。候选引用保留作排障证据，不用于正式发布。
 
 合并成功后，以不可变候选 SHA 调用现有 [Build Matrix](../.github/workflows/build-matrix.yml)，执行前置检查、定制席位轮换回归和全部平台构建。候选代码只有只读仓库权限和只读缓存，不继承签名 Secrets。控制脚本始终来自本次运行的默认分支提交，不能由候选代码替换。所有构建成功后，再核对候选身份及定制分支基线，以原子比较方式仅快进更新；构建期间有其他提交则停止，不覆盖新工作。
 
-晋升成功后调用 [`fork-publish.yml`](../.github/workflows/fork-publish.yml)，复用本次所有平台的构建产物。发布任务只从默认分支运行可信控制脚本，不执行候选代码；它校验定制分支提交、更新地址和公钥，使用仓库 Secret `FORK_UPDATER_PRIVATE_KEY` 签名并验证更新包，生成各平台清单和校验和。全部资产上传到草稿后才公开 Release，随后验证公开清单。它不发布 Homebrew Cask。更新包使用独立的公钥与此 Fork 的 Release 地址；旧版 App 必须先手动安装一次新的 Fork 包，才能使用此通道。Tauri 更新签名不等同于 Apple 公证或 Windows Authenticode 签名。
+晋升成功后调用 [`fork-publish.yml`](../.github/workflows/fork-publish.yml)，复用本次所有平台的构建产物。任务只从默认分支运行可信控制脚本，不执行候选代码；它校验定制分支提交、更新地址和公钥，使用仓库 Secret `FORK_UPDATER_PRIVATE_KEY` 签名并验证更新包，生成草稿清单、构建来源记录、`SHA256SUMS.txt` 及其签名 `SHA256SUMS.txt.sig`。版本标签先明确绑定到本次已验证的源码提交，再创建或续传同源草稿。全部资产上传后仍保持草稿，等待本机完成 Apple 签名和公证；Actions 成功不代表安装包已公开。
 
-发布以源码中的稳定版本为准，标签为 `fork-v<version>`。只有比当前 Fork Release 更高的版本才会自动更新；同一上游版本的定制代码改动不会触发已安装 App 更新。首次发布或需要重试时，在默认分支 Actions → **📦 Fork updater release** 手动运行；它对定制分支当前提交重新执行 Build Matrix。若分支在构建期间变化、版本降级、签名或任一平台失败，发布停止。一个版本若已有草稿，只能继续上传指向相同提交的草稿；已经公开的 Release 不会被覆盖。
+发布版本的唯一来源是 `package.json.version`，标签为 `fork-v<version>`；上游来源单独记录在 `package.json.forkUpstream`。Fork 版本以在上游补丁号末尾追加 `1` 为基础，例如上游 `1.3.78` 对应 Fork `1.3.781`；补丁号按十进制规范化，不保留前导零。同一上游基线的后续修订可继续递增 Fork 补丁号。同步新上游时，[版本策略](../scripts/release/fork-version.cjs)取该映射结果与当前 Fork 补丁号加一中的较大者，确保客户端只升级到更高版本。首次发布或重试构建时，在默认分支 Actions → **📦 Fork updater release** 手动运行。它对定制分支当前提交重新执行 Build Matrix；分支变化、版本降级或任一平台失败均停止。已有草稿只能续传指向相同提交的资产，公开版本不会被覆盖。
+
+在装有 Node.js 24、Xcode 命令行工具、`minisign` 且已登录 `gh` 的 Mac 上，从本次发布的可信代码运行 [`finalize_fork_release.cjs`](../scripts/release/finalize_fork_release.cjs)：
+
+```bash
+node scripts/release/finalize_fork_release.cjs \
+  --tag "fork-v<VERSION>" --source-sha "<FULL_SOURCE_SHA>" \
+  --work-dir ".tmp/fork-release-<VERSION>" \
+  --identity "Developer ID Application: <NAME> (<TEAMID>)" \
+  --team "<TEAMID>" \
+  --key-path "/secure/path/AuthKey_<KEYID>.p8" \
+  --key-id "<KEYID>" --issuer "<ISSUER_UUID>" \
+  --updater-key "/secure/path/fork-updater.key" \
+  --publish
+```
+
+Apple 证书私钥留在本机钥匙串，API 私钥和 Fork updater 私钥仅通过本机路径引用，不提交到仓库或上传 GitHub。脚本下载指定源码对应的草稿，先核验校验和清单的 Fork 签名、资产 SHA-256、标签指向和成功构建记录，再对三个 macOS 架构的 App 及最终 DMG 完成 Developer ID 签名、公证、票据附加和 Gatekeeper 校验。随后由已公证的 App 重建 ARM/Intel 自动更新包，重新生成更新清单与校验和，并签署更新包和校验和清单。签名、公证或上传前校验失败均不公开草稿。不带 `--publish` 时仍会向 Apple 提交公证并验证本地产物；GitHub 草稿的更新和公开由 `--publish` 启用。可用 `--notes-file <file>` 指定发布说明，不要假定重复运行会复用先前的公证结果。
+
+只有最终校验通过，`--publish` 才上传完整资产、公开 Release 并验证公共更新清单。本 Fork 不发布 Homebrew Cask；更新包使用本 Fork 的独立公钥和 Release 地址，旧版上游 App 需先手动安装 Fork 包才能进入此通道。Tauri 更新签名与 Apple 签名、公证分别校验，Windows Authenticode 不在此流程范围内。
 
 在 Actions 运行摘要查看同步及发布结果；构建中的 **Artifacts** 是临时测试包，名称与保留期以 Build Matrix 为准，公开的安装包与更新清单位于本 Fork 的 Releases。部分平台已有产物不代表整次构建或发布成功。GitHub 的定时调度可能延迟；自动更新仍取决于 App 内的更新设置。
 
-失败后，先查看失败 job 和候选引用，修复冲突或权限问题；需要重试同一同步基线时，在默认分支 **Run workflow** 勾选 **retry**。若晋升推送中断，先核对远端分支是否已更新，不凭连接错误判定未成功。晋升已经成功但发布失败时，手动运行 **📦 Fork updater release**。手工更新定制分支后会形成新的基线。使用内置 `GITHUB_TOKEN`，不要求个人 PAT；若上游涉及工作流变更而 GitHub 拒绝推送，则停止并要求人工处理，不跳过这些变更或扩大权限。失败通知遵循 GitHub 账号的 Actions 通知设置，本流程不额外发送邮件或创建 Issue。
+失败后，先查看失败 job 和候选引用，修复冲突或权限问题；需要重试同一同步基线时，在默认分支 **Run workflow** 勾选 **retry**。若晋升推送中断，先核对远端分支是否已更新，不凭连接错误判定未成功。晋升成功但草稿构建失败时，手动运行 **📦 Fork updater release**；本机签名阶段失败时，保留草稿，先检查 Apple 提交状态和本地错误，再重跑本机入口。公开后的校验失败按[第 8 节](#8-草稿发布与公开校验)处理。手工更新定制分支后会形成新的基线。
+
+云端同步和草稿任务使用内置 `GITHUB_TOKEN`，不要求个人 PAT；若上游涉及工作流变更而 GitHub 拒绝推送，则停止并要求人工处理，不跳过这些变更或扩大权限。失败通知遵循 GitHub 账号的 Actions 通知设置，本流程不额外发送邮件或创建 Issue。
 
 回归检查复用 `npm run test:release`，包含临时 Git 仓库中的合并、冲突、重试、版本校验与并发更新测试。它们不访问真实账号或修改远端分支。
