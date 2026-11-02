@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { discoverCodexRemoteServices } from './codexRemoteServiceDiscovery';
 import { codexPathRecoveryKey, withCodexPathRecovery } from '../stores/useCodexPathRecoveryStore';
 import { presentProxyEnginePrerequisite, withProxyEnginePrerequisite } from '../utils/codexProxyEnginePrerequisite';
 import {
@@ -37,7 +38,9 @@ export interface CodexDeviceAuthStartResponse {
 
 /** 列出所有 Codex 账号 */
 export async function listCodexAccounts(): Promise<CodexAccount[]> {
-  return await invoke('list_codex_accounts');
+  const accounts = await invoke<CodexAccount[]>('list_codex_accounts');
+  discoverCodexRemoteServices(accounts);
+  return accounts;
 }
 
 /** 获取当前激活的 Codex 账号 */
@@ -184,11 +187,6 @@ export async function refreshCodexAccountProfile(accountId: string): Promise<Cod
 /** 使用 OAuth refresh_token 手动强制获取新的 access_token/id_token。 */
 export async function forceRefreshCodexTokens(accountId: string): Promise<CodexAccount> {
   return await invoke<CodexAccount>('force_refresh_codex_tokens', { accountId });
-}
-
-/** 清除官方客户端登录页观测标识，不修改 Token 或远端授权状态。 */
-export async function clearClientAuthObservation(accountId: string): Promise<boolean> {
-  return await invoke<boolean>('codex_clear_client_auth_observation', { accountId });
 }
 
 /** 切换 Codex 账号 */
@@ -632,6 +630,7 @@ export async function addCodexAccountWithApiKey(
   apiSupportsWebsockets?: boolean,
   apiSyncModelCatalogToCodex?: boolean,
   apiModelContextWindows?: Record<string, number>,
+  apiAuthScheme?: "x-api-key" | "bearer",
 ): Promise<CodexAccount> {
   return await invoke('add_codex_account_with_api_key', {
     apiKey,
@@ -642,6 +641,7 @@ export async function addCodexAccountWithApiKey(
     apiModelCatalog: apiModelCatalog ?? null,
     apiSyncModelCatalogToCodex: apiSyncModelCatalogToCodex ?? null,
     apiWireApi: apiWireApi ?? null,
+    apiAuthScheme: apiAuthScheme ?? null,
     apiSupportsWebsockets: apiSupportsWebsockets ?? false,
     apiSupportsVision: apiSupportsVision ?? false,
     apiModelVisionSupport: apiModelVisionSupport ?? {},
@@ -694,6 +694,7 @@ export async function updateCodexApiKeyCredentials(
   apiSyncModelCatalogToCodex?: boolean,
   accountName?: string,
   apiModelContextWindows?: Record<string, number>,
+  apiAuthScheme?: "x-api-key" | "bearer",
 ): Promise<CodexAccount> {
   return await invoke('update_codex_api_key_credentials', {
     accountId,
@@ -705,6 +706,7 @@ export async function updateCodexApiKeyCredentials(
     apiModelCatalog: apiModelCatalog ?? null,
     apiSyncModelCatalogToCodex: apiSyncModelCatalogToCodex ?? null,
     apiWireApi: apiWireApi ?? null,
+    apiAuthScheme: apiAuthScheme ?? null,
     apiSupportsWebsockets: apiSupportsWebsockets ?? false,
     apiSupportsVision: apiSupportsVision ?? false,
     apiModelVisionSupport: apiModelVisionSupport ?? {},
@@ -723,6 +725,7 @@ export async function syncCodexApiKeyProviderAccounts(input: {
   apiModelCatalog?: string[];
   apiModelContextWindows?: Record<string, number>;
   apiWireApi: CodexProviderWireApi;
+  apiAuthScheme?: "x-api-key" | "bearer";
   apiSupportsWebsockets: boolean;
   apiSupportsVision: boolean;
   apiModelVisionSupport: Record<string, boolean>;
@@ -737,6 +740,7 @@ export async function syncCodexApiKeyProviderAccounts(input: {
     apiModelCatalog: input.apiModelCatalog ?? null,
     apiModelContextWindows: input.apiModelContextWindows ?? null,
     apiWireApi: input.apiWireApi,
+    apiAuthScheme: input.apiAuthScheme ?? null,
     apiSupportsWebsockets: input.apiSupportsWebsockets,
     apiSupportsVision: input.apiSupportsVision,
     apiModelVisionSupport: input.apiModelVisionSupport,

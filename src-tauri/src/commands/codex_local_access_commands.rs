@@ -171,8 +171,11 @@ pub async fn codex_local_access_query_request_logs(
     end_at: Option<i64>,
     model_query: Option<String>,
     account_query: Option<String>,
+    account_id: Option<String>,
+    api_key_id: Option<String>,
     api_key_query: Option<String>,
     instance_query: Option<String>,
+    session_query: Option<String>,
     gateway_mode: Option<CodexLocalAccessGatewayMode>,
     request_kind: Option<CodexLocalAccessRequestKind>,
     success: Option<bool>,
@@ -186,8 +189,11 @@ pub async fn codex_local_access_query_request_logs(
         end_at,
         model_query,
         account_query,
+        account_id,
+        api_key_id,
         api_key_query,
         instance_query,
+        session_query,
         gateway_mode,
         request_kind,
         success,
@@ -337,12 +343,6 @@ pub async fn codex_local_access_update_upstream_proxy_config(
     codex_local_access::update_local_access_upstream_proxy_config(upstream_proxy_url).await
 }
 
-#[tauri::command]
-pub async fn codex_local_access_update_gateway_mode(
-    gateway_mode: CodexLocalAccessGatewayMode,
-) -> Result<CodexLocalAccessState, String> {
-    codex_local_access::update_local_access_gateway_mode(gateway_mode).await
-}
 
 #[tauri::command]
 pub async fn codex_local_access_update_debug_logs(
@@ -425,8 +425,9 @@ pub async fn codex_local_access_update_api_key(
     token_limit: Option<u64>,
     account_ids: Option<Vec<String>>,
     inherit_account_pool: Option<bool>,
+    budget: Option<crate::models::codex_local_access::CodexApiKeyBudget>,
 ) -> Result<CodexLocalAccessState, String> {
-    codex_local_access::update_local_access_api_key(
+    codex_local_access::update_local_access_api_key_with_budget(
         api_key_id,
         label,
         enabled,
@@ -436,6 +437,7 @@ pub async fn codex_local_access_update_api_key(
         token_limit,
         account_ids,
         inherit_account_pool,
+        budget,
     )
     .await
 }
@@ -801,7 +803,7 @@ mod tests {
                 Some("chat_completions"),
                 "https://api.deepseek.com/v1",
             ),
-            "chat_completions"
+            "responses"
         );
         assert_eq!(
             normalize_model_provider_wire_api(Some("responses"), "https://api.deepseek.com/v1"),

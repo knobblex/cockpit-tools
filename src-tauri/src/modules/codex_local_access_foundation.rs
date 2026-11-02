@@ -1763,6 +1763,8 @@ fn preserve_runtime_collection_fields(
     for api_key in &mut collection.api_keys {
         if let Some(current_api_key) = current.api_keys.iter().find(|item| item.id == api_key.id) {
             api_key.token_used = api_key.token_used.max(current_api_key.token_used);
+            merge_key_budget_usage(&mut api_key.budget_usage, &current_api_key.budget_usage);
+            if current_api_key.updated_at > api_key.updated_at { api_key.budget = current_api_key.budget.clone(); }
         }
     }
 }
@@ -1784,10 +1786,9 @@ fn sync_runtime_collection(
     if let Some(current) = runtime.collection.as_ref() {
         preserve_runtime_collection_fields(&mut collection, current);
         collection.native_gateway_default_migrated |= current.native_gateway_default_migrated;
-        if current.gateway_mode != CodexLocalAccessGatewayMode::Legacy {
-            collection.gateway_mode = current.gateway_mode;
-        }
     }
+    collection.gateway_mode = CodexLocalAccessGatewayMode::Native;
+    collection.native_gateway_default_migrated = true;
     sync_quota_reserve_policy(&collection);
     REQUEST_PAYLOAD_LOGGING_ENABLED.store(collection.request_payload_logging, Ordering::SeqCst);
     if let Some(handle) = runtime.native_handle.as_ref() {

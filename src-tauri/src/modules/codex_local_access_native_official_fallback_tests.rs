@@ -211,6 +211,7 @@ fn official_host_report(
 ) -> native_contract::RequestReport {
     native_contract::RequestReport {
         upstream_error_code: None,
+        transient_rate_limit: false,
         official_access_fingerprint: Some(crate::modules::chatgpt_plan::token_fingerprint(
             "synthetic-official-access",
         )),

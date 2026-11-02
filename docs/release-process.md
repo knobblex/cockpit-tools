@@ -63,7 +63,7 @@ Linux release 同时包含 AppImage、deb 和 rpm updater targets。macOS Univer
 
 依赖缓存由 `.github/actions/host-build-cache` 统一配置。CI 在可信的 `main` push 上构建并保存缓存，后续 tag 可读取默认分支缓存；不同 tag 之间不能互读各自生成的缓存。CI 与 release 按相同平台标识使用 `shared-key`，Rust 工具链、依赖与环境仍参与键计算，workspace 指向仓库根目录的 `target`，不缓存宿主业务 crate。Windows/Linux 缓存实际的 Tauri 工具目录；macOS 的 create-dmg 脚本随 bundler 写入 `target/.../bundle/share`，不再缓存不存在的 `~/Library/Caches/tauri`。首次启用或工具链变化仍可能冷编译，实际提速需由后续远端构建确认。
 
-Universal 不再从源码重编两套宿主。ARM 和 Intel release job 在本轮构建后通过 `scripts/release/macos-universal.cjs --mode stage` 上传宿主与 Go sidecar 的薄二进制，附带版本、commit、workflow run ID 和 SHA-256。Universal job 等待这两个 job 完成，使用同一 run 的具名 artifact；`--mode merge` 校验身份、文件哈希、实际架构，合并宿主和 sidecar，并逐片提取比对原始内容，再运行官方 `tauri bundle --target universal-apple-darwin`，沿用签名、资源和 DMG 流程。缺失或不匹配直接失败，不回退到其他版本或旧产物。CI matrix 中的 Universal 源码构建仍保留，用于独立兼容性验证。
+Universal 不再从源码重编两套宿主。ARM 和 Intel release job 在本轮构建后通过 `scripts/release/macos-universal.cjs --mode stage` 上传宿主薄二进制，附带版本、commit、workflow run ID 和 SHA-256。Universal job 等待这两个 job 完成，使用同一 run 的具名 artifact；`--mode merge` 校验身份、文件哈希、实际架构，合并宿主，并逐片提取比对原始内容，再运行官方 `tauri bundle --target universal-apple-darwin`，沿用签名、资源和 DMG 流程。缺失或不匹配直接失败，不回退到其他版本或旧产物。CI matrix 中的 Universal 源码构建仍保留，用于独立兼容性验证。
 
 ARM 和 Intel job 执行 `tauri build`，Universal job 执行 `tauri bundle`；三个 job 随后都会执行 `scripts/release/inject-dmg-readme.cjs`，用 `hdiutil` 重建 DMG（保留 `.app` 原样）并写入 `安装与常见问题.txt`，同时固定窗口中三个图标的位置：Cockpit Tools 与 Applications 保持同一行（`180,150` / `480,150`），保证“把图标拖到右侧安装”的动线不变；说明文件单独放在下一行（`330,330`），窗口尺寸随之调整为 660×490、图标 112px、文字 14pt。Tauri bundler 没有“向 DMG 追加文件”的配置项，因此这里重建的是 bundler 产物本身，而不是在打包阶段插文件；重建后 DMG 文件名与 Tauri 约定一致（`<productName>_<version>_<arch>.dmg`），供 `stage_release_assets.cjs` 正常规范化。安装排查步骤的唯一来源是 [`dmg-readme.txt`](../scripts/release/assets/dmg-readme.txt)，README 链接该文件。
 
@@ -86,7 +86,30 @@ Tauri release build 使用仓库配置的 updater signing secrets：
 - `TAURI_SIGNING_PRIVATE_KEY`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 
-上述 Secrets 只签名 updater artifact。macOS 应用签名由 [`bundle.macOS`](../src-tauri/tauri.conf.json) 配置：默认临时签名（ad-hoc），由 Tauri 封装应用资源和内嵌可执行文件，不能只保留 Rust 链接器的裸二进制签名。Build Matrix 在上传前执行 `codesign --verify --deep --strict`，验证失败不上传安装包。临时签名不等于 Apple Developer ID 或 Apple 公证；首次打开仍可能需要按安装说明允许此 App。Windows Authenticode 同样不由 updater Secrets 提供。
+这两个密钥仅用于 Tauri updater artifact 签名，与 Apple Developer ID 签名不同，必须继续保留。Windows Authenticode 不在本次流程范围内。
+
+### macOS Developer ID 与 Apple 公证
+
+上游 release workflow 的三个 macOS 正式 release job 均要求以下 GitHub Actions repository secrets（缺失即失败，不降级为未签名包）：
+
+| Secret | 内容 |
+| --- | --- |
+| `APPLE_CERTIFICATE` | 包含私钥的 Developer ID Application `.p12` 文件的 Base64 |
+| `APPLE_CERTIFICATE_PASSWORD` | `.p12` 导出密码 |
+| `APPLE_SIGNING_IDENTITY` | 完整 `Developer ID Application: … (TEAMID)` 证书名 |
+| `APPLE_ID` | 公证用 Apple 账号邮箱 |
+| `APPLE_PASSWORD` | Apple App 专用密码，不是账号登录密码 |
+| `APPLE_TEAM_ID` | 与签名证书一致的 10 位团队 ID |
+
+`macos-signing.cjs prepare` 在 runner 临时目录创建独立钥匙串、导入证书并验证公证凭据。构建步骤通过 Tauri 完成应用签名、公证和票据附加，开启 hardened runtime；不默认放宽 entitlement。自动更新包继续由 Tauri 生成与签名。
+
+随后重建包含安装说明的 DMG，再由 `macos-signing.cjs finalize` 签名并提交最终 DMG 公证，等待上限 30 分钟。校验覆盖原应用、解压后的自动更新应用和最终 DMG 内的应用，要求正确 Developer ID 团队、hardened runtime、有效公证票据及 Gatekeeper 认可；最终 DMG 本身也需通过签名、票据和 Gatekeeper 检查。全部通过后才进入资产暂存、上传与校验和生成。Universal 合并后仍由 Tauri 重新签名，不能复用合并前的签名。
+
+每个 macOS job 上限 120 分钟，结束时 `if: always()` 恢复钥匙串搜索列表并删除本轮临时钥匙串；导入后的 `.p12` 临时文件立即删除。Apple 返回拒绝、超时或凭据错误时停止发布，不移除隔离属性绕过校验。首次公证可能等待较久，超时应检查 Apple submission 状态后重试，不能当作已通过。
+
+本流程不会补签已经发布的历史安装包。只有实际完成签名与公证的产物才能标注为已验证。证书、私钥、专用密码均不得提交到仓库或写入日志。
+
+本地包及 Fork Build Matrix 默认使用 [`bundle.macOS`](../src-tauri/tauri.conf.json) 配置的完整临时签名（ad-hoc），由 Tauri 封装应用资源和内嵌可执行文件；上传前执行 `codesign --verify --deep --strict`。此流程不执行 Apple Developer ID 签名或公证，安装排查统一见[随包说明](../scripts/release/assets/dmg-readme.txt)。
 
 ## 4. Release assets 与 updater manifests
 

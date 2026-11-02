@@ -32,6 +32,7 @@ import { CodexPelicanHost } from './components/codex/pelican/CodexPelicanHost';
 import { AnnouncementHost } from './components/AnnouncementCenter';
 import { TopCenterPromoBanner } from './components/TopCenterPromoBanner';
 import type { QuickSettingsType } from './components/QuickSettingsPopover';
+import { requestCodexRequestLogsNavigation } from './utils/codexRequestLogsNavigation';
 import { isMainWindowNavigablePage, type Page } from './types/navigation';
 import type { TopRightAd } from './types/topRightAd';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
@@ -61,12 +62,16 @@ import { useTopRightAdStore } from './stores/useTopRightAdStore';
 import { useSponsorStore } from './stores/useSponsorStore';
 import { useRemoteConfigStore } from './stores/useRemoteConfigStore';
 import type { UpdateCheckResult, UpdateInfo } from './components/UpdateNotification';
+import type {
+  VersionJumpInfo, UpdateRuntimeInfo, UpdateCheckSource,
+  LinuxUpdateProgressPayload, UpdateAction,
+} from './types/updater';
 import type { RemoteUpdatePromptMode } from './types/remoteConfig';
 import type { Update as UpdaterUpdate } from '@tauri-apps/plugin-updater';
 import {
-  parseUpdaterReleaseNotes,
-  resolveUpdaterDownloadUrl,
+  parseUpdaterReleaseNotes, resolveUpdaterDownloadUrl,
 } from './utils/updaterReleaseNotes';
+import { savePendingUpdateNotes } from './services/localUpdateNotes';
 import { FloatingCardWindow } from './pages/FloatingCardWindow';
 import { CodexWakeupConfirmation } from './components/CodexWakeupConfirmation';
 import { initWakeupNotificationListener } from './utils/wakeupNotificationListener';
@@ -511,37 +516,6 @@ type QuotaAlertPlatform =
   | 'trae'
   | 'workbuddy'
   | 'zed';
-type UpdateCheckSource = 'auto' | 'manual';
-type UpdateActionState = 'hidden' | 'available' | 'downloading' | 'installing' | 'ready';
-
-type UpdateRuntimeInfo = {
-  platform: string;
-  linux_install_kind: string;
-  linux_managed_install_supported: boolean;
-  updater_target?: string | null;
-};
-
-type LinuxUpdateProgressPhase =
-  | 'download_started'
-  | 'downloading'
-  | 'downloaded'
-  | 'auth_required'
-  | 'installing'
-  | 'completed';
-
-type LinuxUpdateProgressPayload = {
-  version: string;
-  phase: LinuxUpdateProgressPhase;
-  progress?: number | null;
-};
-
-type UpdateAction = {
-  state: UpdateActionState;
-  version: string | null;
-  progress: number;
-  requiresInstall: boolean;
-};
-
 function buildExternalImportDedupeKey(payload: {
   providerId: string;
   page: string;
@@ -875,12 +849,7 @@ function MainApp() {
   const [appLaunchCandidates, setAppLaunchCandidates] = useState<AppLaunchCandidate[]>([]);
   const [appPathActionError, setAppPathActionError] = useState('');
   const [appPathScanError, setAppPathScanError] = useState('');
-  const [versionJumpInfo, setVersionJumpInfo] = useState<{
-    previous_version: string;
-    current_version: string;
-    release_notes: string;
-    release_notes_zh: string;
-  } | null>(null);
+  const [versionJumpInfo, setVersionJumpInfo] = useState<VersionJumpInfo | null>(null);
   const [showVersionJumpNotification, setShowVersionJumpNotification] = useState(false);
   const [updateRuntimeInfo, setUpdateRuntimeInfo] = useState<UpdateRuntimeInfo | null>(null);
   const [updateRuntimeInfoLoaded, setUpdateRuntimeInfoLoaded] = useState(false);
@@ -1422,8 +1391,7 @@ function MainApp() {
       current_version: currentVersion,
       latest_version: update.version,
       download_url: resolveUpdaterDownloadUrl(update.version, update.rawJson),
-      release_notes: releaseNotes,
-      release_notes_zh: releaseNotesZh,
+      release_notes: releaseNotes, release_notes_zh: releaseNotesZh,
     };
   }, []);
 
@@ -1856,22 +1824,7 @@ function MainApp() {
             activeUpdateDownloadRef.current = candidate;
 
             const candidateVersion = candidate.version;
-            const { releaseNotes, releaseNotesZh } = parseUpdaterReleaseNotes(candidate.body);
-            await invoke('save_pending_update_notes', {
-              version: candidateVersion,
-              releaseNotes,
-              releaseNotesZh,
-            }).catch((error) => {
-              console.error('[App] Failed to cache shared update notes:', error);
-              writeUpdateLog(
-                'warn',
-                `缓存统一更新说明失败: version=${candidateVersion}, error=${sanitizeUpdaterErrorMessage(error)}`,
-              );
-            });
-            if (updateCancelRequestedRef.current || updateDownloadTaskIdRef.current !== taskId) {
-              throw createUpdaterCanceledError();
-            }
-
+            savePendingUpdateNotes(candidateVersion, candidate.body);
             const trackProgress = createUpdaterDownloadProgress();
             await candidate.download((event) => {
               if (!acceptingProgress || updateCancelRequestedRef.current
@@ -2658,12 +2611,7 @@ function MainApp() {
       try {
         console.log('[StartupPerf][VersionJump] detection started');
         const versionJumpInvokeStartedAt = performance.now();
-        const jumpInfo = await invoke<{
-          previous_version: string;
-          current_version: string;
-          release_notes: string;
-          release_notes_zh: string;
-        } | null>('check_version_jump');
+        const jumpInfo = await invoke<VersionJumpInfo | null>('check_version_jump');
         console.log(
           `[StartupPerf][VersionJump] check_version_jump completed in ${(performance.now() - versionJumpInvokeStartedAt).toFixed(2)}ms; hasJump=${Boolean(jumpInfo)}`,
         );
@@ -3441,7 +3389,9 @@ function MainApp() {
       .then((target) => {
         if (!target) return;
         const page = String(target);
-        if (isMainWindowNavigablePage(page)) {
+        if (requestCodexRequestLogsNavigation(page)) {
+          setPage('codex-api-service');
+        } else if (isMainWindowNavigablePage(page)) {
           setPage(page);
         }
       })
@@ -3455,7 +3405,9 @@ function MainApp() {
 
         listen<string>('tray:navigate', (event) => {
           const target = String(event.payload || '');
-          if (isMainWindowNavigablePage(target)) {
+          if (requestCodexRequestLogsNavigation(target)) {
+            setPage('codex-api-service');
+          } else if (isMainWindowNavigablePage(target)) {
             setPage(target);
           }
         }).then((fn) => { unlisten = fn; });
@@ -3618,6 +3570,7 @@ function MainApp() {
           <UpdateNotification
             key={updateNotificationKey}
             updateInfo={updateNotificationInfo}
+            visible={showUpdateNotification}
             checking={updateNotificationChecking}
             onRestartUpdate={handleApplyPendingUpdate}
             actionState={updateAction.state}

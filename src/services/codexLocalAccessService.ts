@@ -7,7 +7,6 @@ import type {
   CodexLocalAccessAccountModelRule,
   CodexLocalAccessAppendAccountsResult,
   CodexLocalAccessClientBaseUrlHost,
-  CodexLocalAccessGatewayMode,
   CodexLocalAccessModelAlias,
   CodexLocalAccessAccountWindowQuery,
   CodexLocalAccessAccountWindowStats,
@@ -143,8 +142,11 @@ export async function queryCodexLocalAccessRequestLogs(
     endAt: query.endAt ?? null,
     modelQuery: query.modelQuery ?? null,
     accountQuery: query.accountQuery ?? null,
+    accountId: query.accountId ?? null,
+    apiKeyId: query.apiKeyId ?? null,
     apiKeyQuery: query.apiKeyQuery ?? null,
     instanceQuery: query.instanceQuery ?? null,
+    sessionQuery: query.sessionQuery?.trim() || null,
     gatewayMode: query.gatewayMode ?? null,
     requestKind: query.requestKind ?? null,
     success: query.success ?? null,
@@ -298,13 +300,6 @@ export async function updateCodexLocalAccessUpstreamProxyConfig(
   });
 }
 
-export async function updateCodexLocalAccessGatewayMode(
-  gatewayMode: CodexLocalAccessGatewayMode,
-): Promise<CodexLocalAccessState> {
-  return await invoke("codex_local_access_update_gateway_mode", {
-    gatewayMode,
-  });
-}
 
 export async function updateCodexLocalAccessDebugLogs(
   debugLogs: boolean,
@@ -386,6 +381,7 @@ export async function updateCodexLocalAccessApiKey(
     allowedModels?: string[] | null;
     excludedModels?: string[] | null;
     tokenLimit?: number | null;
+    budget?: import('../types/codexRemoteService').CodexApiKeyBudget;
     accountIds?: string[] | null;
     inheritAccountPool?: boolean | null;
   },
@@ -398,6 +394,7 @@ export async function updateCodexLocalAccessApiKey(
     allowedModels: payload.allowedModels ?? null,
     excludedModels: payload.excludedModels ?? null,
     tokenLimit: payload.tokenLimit ?? null,
+    budget: payload.budget ?? null,
     accountIds: payload.accountIds ?? null,
     inheritAccountPool: payload.inheritAccountPool ?? null,
   });
