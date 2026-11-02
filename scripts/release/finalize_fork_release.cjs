@@ -26,6 +26,25 @@ function run(executable, args, options = {}) {
 }
 
 function ghJson(endpoint) { return JSON.parse(run('gh', ['api', `repos/${REPO}/${endpoint}`])); }
+function findReleaseByTag(tag, api = ghJson) {
+  // The public tag endpoint can return 404 for an authenticated draft. The
+  // authenticated release list includes drafts; retain its immutable ID.
+  let match;
+  for (let page = 1; page <= 100; page += 1) {
+    const releases = api(`releases?per_page=100&page=${page}`);
+    if (!Array.isArray(releases)) throw new Error('Expected a release list from GitHub');
+    for (const release of releases) {
+      if (release.tag_name !== tag) continue;
+      if (match) throw new Error(`Multiple releases match ${tag}; refusing an ambiguous draft`);
+      match = release;
+    }
+    if (releases.length < 100) {
+      if (!match) throw new Error(`Release ${tag} was not found in the authenticated release list`);
+      return match;
+    }
+  }
+  throw new Error('Release lookup exceeded its pagination limit');
+}
 function sha256(file) { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); }
 function filesIn(directory) {
   return fs.readdirSync(directory).sort().map(name => {
@@ -206,8 +225,9 @@ async function finalizeFork(options, dependencies = {}) {
     `https://github.com/${REPO}/releases/latest/download/latest.json`,
   ];
   if (JSON.stringify(config.plugins.updater.endpoints) !== JSON.stringify(expectedEndpoints)) throw new Error('Unexpected updater endpoints');
-  const release = api(`releases/tags/${tag}`);
+  const release = findReleaseByTag(tag, api);
   validateDraft(release, tag, source);
+  const releaseEndpoint = `releases/${release.id}`;
   assertSource(source, api);
   assertTag(tag, source, api);
   assertNewerRelease(version, api('releases/latest'));
@@ -239,7 +259,7 @@ async function finalizeFork(options, dependencies = {}) {
   }
   for (const { file } of matchUpdaterFiles(downloaded)) verifyUpdater(file, publicKey, attempt, commandRun);
   // Verify the local updater key before any Apple submission.
-  const probe = path.join(attempt, 'updater-key-check');
+  const probe = path.join(attempt, 'updater-key-check.txt');
   fs.writeFileSync(probe, `${tag}\n${source}\n`);
   signUpdater(probe, path.resolve(updaterKey), publicKey, attempt, commandRun);
   for (const { name, file } of filesIn(downloaded)) fs.copyFileSync(file, path.join(assets, name));
@@ -282,13 +302,13 @@ async function finalizeFork(options, dependencies = {}) {
   assertSource(source, api);
   assertTag(tag, source, api);
   assertNewerRelease(version, api('releases/latest'));
-  validateDraft(api(`releases/tags/${tag}`), tag, source, release.id);
+  validateDraft(api(releaseEndpoint), tag, source, release.id);
   const changed = filesIn(assets).filter(({ name, file }) => original.get(name) !== sha256(file));
   await (dependencies.uploadReleaseAssets || uploadReleaseAssets)(tag, changed.map(({ file }) => file), {
     run: args => spawnSync('gh', args, { encoding: 'utf8', timeout: 10 * 60_000,
       maxBuffer: 1024 * 1024, env: { ...process.env, GH_REPO: REPO } }),
   });
-  const uploaded = api(`releases/tags/${tag}`);
+  const uploaded = api(releaseEndpoint);
   validateDraft(uploaded, tag, source, release.id);
   const expected = filesIn(assets);
   if (uploaded.assets.length !== expected.length || expected.some(local => !uploaded.assets.some(remote => remote.name === local.name && remote.size === local.size))) {
@@ -311,14 +331,15 @@ async function finalizeFork(options, dependencies = {}) {
   assertSource(source, api);
   assertTag(tag, source, api);
   assertNewerRelease(version, api('releases/latest'));
-  const finalDraft = api(`releases/tags/${tag}`);
+  const finalDraft = api(releaseEndpoint);
   validateDraft(finalDraft, tag, source, release.id);
   const assetSnapshot = value => value.assets.map(asset => [asset.name, asset.id ?? null, asset.size,
     asset.digest ?? null, asset.state]).sort((a, b) => a[0].localeCompare(b[0]));
   if (JSON.stringify(assetSnapshot(finalDraft)) !== JSON.stringify(assetSnapshot(uploaded))) {
     throw new Error('Draft assets changed after upload verification');
   }
-  commandRun('gh', ['release', 'edit', tag, '--repo', REPO, '--notes-file', notes, '--draft=false', '--prerelease=false', '--latest']);
+  commandRun('gh', ['api', '--method', 'PATCH', `repos/${REPO}/${releaseEndpoint}`,
+    '-F', `body=@${notes}`, '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true']);
   console.log(`Published https://github.com/${REPO}/releases/tag/${tag}`);
   commandRun(process.execPath, [path.join(__dirname, 'verify_published_updater_manifests.cjs'), '--version', version,
     '--repo', REPO, '--release-base-url', `https://github.com/${REPO}/releases/download/${tag}`,
@@ -342,4 +363,4 @@ if (require.main === module) {
   finalizeFork(parseArgs(process.argv.slice(2))).catch(error => { console.error(error.message); process.exitCode = 1; });
 }
 module.exports = { finalizeFork, validateDraft, validateProvenance, verifyChecksums, writeChecksums, allowedName, parseArgs,
-  assertTag, assertNewerRelease, validateSignedResult };
+  assertTag, assertNewerRelease, validateSignedResult, findReleaseByTag };

@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const test = require('node:test');
 const { finalizeFork, validateDraft, validateProvenance, verifyChecksums, writeChecksums, allowedName, parseArgs,
-  assertTag, assertNewerRelease, validateSignedResult } = require('./finalize_fork_release.cjs');
+  assertTag, assertNewerRelease, validateSignedResult, findReleaseByTag } = require('./finalize_fork_release.cjs');
 
 const source = 'a'.repeat(40);
 const controller = 'b'.repeat(40);
@@ -16,6 +16,21 @@ const provenance = { schema: 1, repository: 'knobblex/cockpit-tools', source, co
 const ci = { id: 1234, run_attempt: 1, repository: { full_name: 'knobblex/cockpit-tools' }, head_sha: controller,
   head_repository: { full_name: 'knobblex/cockpit-tools' }, head_branch: 'main', event: 'workflow_dispatch',
   status: 'completed', conclusion: 'success', path: '.github/workflows/fork-publish.yml' };
+
+test('authenticated draft lookup uses an exact tag across paginated releases', () => {
+  const calls = [];
+  const unrelated = Array.from({ length: 100 }, (_, index) => ({ id: index + 1, tag_name: `another-${index}` }));
+  const found = findReleaseByTag(draft.tag_name, endpoint => {
+    calls.push(endpoint);
+    if (endpoint === 'releases?per_page=100&page=1') return unrelated;
+    if (endpoint === 'releases?per_page=100&page=2') return [draft];
+    throw new Error('HTTP 404: public tags endpoint does not expose this draft');
+  });
+  assert.equal(found.id, draft.id);
+  assert.equal(calls.length, 2);
+  assert.throws(() => findReleaseByTag(draft.tag_name, () => [{ ...draft, tag_name: `${draft.tag_name}-other` }]), /not found/);
+  assert.throws(() => findReleaseByTag(draft.tag_name, () => [draft, { ...draft, id: draft.id + 1 }]), /Multiple releases/);
+});
 
 test('published releases, wrong sources and incomplete drafts cannot enter signing', () => {
   assert.doesNotThrow(() => validateDraft(draft, draft.tag_name, source));
@@ -136,14 +151,18 @@ function finalizerFixture(t, overrides = {}) {
   let publicVerified = false;
   const signedArchs = [];
   const commandCalls = [];
+  const apiCalls = [];
   const release = () => ({ ...draft, assets: fs.readdirSync(remote).map(name => ({ name,
     state: 'uploaded', size: fs.statSync(path.join(remote, name)).size,
     digest: `sha256:${hash(path.join(remote, name))}` })) });
   const state = () => ({ uploaded, published, publicVerified, signedArchs, remote });
   const api = endpoint => {
+    apiCalls.push(endpoint);
     const result = overrides.api?.(endpoint, state());
     if (result !== undefined) return result;
-    if (endpoint === `releases/tags/${draft.tag_name}`) return release();
+    if (endpoint.startsWith('releases/tags/')) throw new Error('HTTP 404: draft is not exposed by the public tag endpoint');
+    if (endpoint === 'releases?per_page=100&page=1') return [release()];
+    if (endpoint === `releases/${draft.id}`) return release();
     if (endpoint === 'releases/latest') return { tag_name: 'fork-v1.3.78', draft: false, prerelease: false };
     if (endpoint.startsWith('git/ref/')) return { object: { type: 'commit', sha: source } };
     if (endpoint === 'actions/runs/1234') return ci;
@@ -166,8 +185,20 @@ function finalizerFixture(t, overrides = {}) {
       overrides.afterDownload?.(destination);
       return '';
     }
-    if (exe === 'gh' && args[1] === 'edit') { published = true; return ''; }
-    if (exe === process.execPath && args[1] === 'signer') { fakeSign(args.at(-1)); return ''; }
+    if (exe === 'gh' && args[0] === 'api') {
+      assert.match(args[5], /^body=@/);
+      assert.deepEqual(args, ['api', '--method', 'PATCH', `repos/knobblex/cockpit-tools/releases/${draft.id}`,
+        '-F', args[5], '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true']);
+      assert.ok(fs.readFileSync(args[5].slice('body=@'.length), 'utf8').includes(source));
+      assert.equal(uploaded, true);
+      published = true;
+      return '';
+    }
+    if (exe === process.execPath && args[1] === 'signer') {
+      assert.ok(path.extname(args.at(-1)), 'Tauri signer requires a file extension, including for the key probe');
+      fakeSign(args.at(-1));
+      return '';
+    }
     if (exe === process.execPath && args[0].endsWith('build_merged_latest_json.cjs')) {
       fs.writeFileSync(args[args.indexOf('--output') + 1], JSON.stringify({ version: '1.3.79', platforms: {} }));
       return '';
@@ -203,7 +234,7 @@ function finalizerFixture(t, overrides = {}) {
     for (const file of files) fs.copyFileSync(file, path.join(remote, path.basename(file)));
     overrides.afterUpload?.(remote);
   };
-  return { options, state, commandCalls, remote,
+  return { options, state, commandCalls, apiCalls, remote,
     deps: { platform: 'darwin', run, api, signMac, uploadReleaseAssets } };
 }
 
@@ -214,9 +245,24 @@ test('the complete finalizer verifies all three Mac outputs and uploads before p
   assert.deepEqual(f.state().signedArchs, ['aarch64', 'x64', 'universal']);
   assert.equal(f.state().uploaded, true);
   assert.equal(f.state().publicVerified, true);
+  assert.equal(f.apiCalls.filter(endpoint => endpoint === `releases/${draft.id}`).length, 3);
+  assert.ok(!f.apiCalls.some(endpoint => endpoint.startsWith('releases/tags/')));
+  assert.ok(!f.commandCalls.some(([exe, args]) => exe === 'gh' && args[0] === 'release' && args[1] === 'edit'));
+  assert.equal(f.commandCalls.filter(([exe, args]) => exe === 'gh' && args[0] === 'api' && args[2] === 'PATCH').length, 1);
   const evidence = JSON.parse(fs.readFileSync(path.join(f.remote, 'Apple-notarization.json')));
   assert.equal(evidence.builds.length, 3);
   verifyChecksums(f.remote);
+});
+
+test('pinned draft rechecks reject a different tag, replacement ID or already-public release', async t => {
+  for (const changes of [{ tag_name: 'fork-v1.3.80' }, { id: draft.id + 1 }, { draft: false }]) {
+    const f = finalizerFixture(t, { api(endpoint) {
+      if (endpoint === `releases/${draft.id}`) return { ...draft, ...changes };
+    } });
+    await assert.rejects(finalizeFork(f.options, f.deps), /unpublished draft|replaced/);
+    assert.equal(f.state().uploaded, false);
+    assert.equal(f.state().published, false);
+  }
 });
 
 test('an unsigned or altered inventory fails before any private key use or Apple submission', async t => {
