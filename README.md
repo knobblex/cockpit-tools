@@ -411,7 +411,7 @@ brew install --cask --force cockpit-tools
 
 ### 前置要求
 
-- Node.js v18+
+- Node.js ([构建配置](.github/workflows/build-matrix.yml))
 - npm v9+
 - Rust（Tauri 运行时）
 

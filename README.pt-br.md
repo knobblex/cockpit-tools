@@ -332,7 +332,7 @@ Se o aviso persistir, baixe uma versão explicitamente identificada como assinad
 
 ### Pré-requisitps
 
-- Node.js v18+
+- Node.js ([configuração de build](.github/workflows/build-matrix.yml))
 - npm v9+
 - Rust (Tauri runtime)
 

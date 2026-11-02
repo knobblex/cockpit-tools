@@ -414,7 +414,7 @@ This warning can indicate an invalid signature, damaged files, or a macOS securi
 
 ### Prerequisites
 
-- Node.js v18+
+- Node.js ([build configuration](.github/workflows/build-matrix.yml))
 - npm v9+
 - Rust (Tauri runtime)
 
