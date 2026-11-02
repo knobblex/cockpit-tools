@@ -129,16 +129,27 @@ jobs:
                 ;;
             esac
           done
-      - name: Generate complete updater manifests and checksums
+      - name: Generate draft manifests and build provenance
         shell: bash
         run: |
           set -euo pipefail
-          printf 'Fork build of upstream %s. Source commit: %s.\n' "$VERSION" "$SOURCE_SHA" > "$RUNNER_TEMP/fork-notes.md"
+          printf 'Fork version %s. Source commit: %s. Awaiting local Apple signing and notarization.\n' "$VERSION" "$SOURCE_SHA" > "$RUNNER_TEMP/fork-notes.md"
           published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           node scripts/release/build_target_latest_json.cjs --version "$VERSION" --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets-dir release-assets --notes-file "$RUNNER_TEMP/fork-notes.md" --published-at "$published_at" --targets "$TARGETS" --output-dir release-assets
           node scripts/release/build_merged_latest_json.cjs --version "$VERSION" --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets-dir release-assets --notes-file "$RUNNER_TEMP/fork-notes.md" --published-at "$published_at" --output release-assets/latest.json
+          node -e 'const fs=require("node:fs");fs.writeFileSync("release-assets/Fork-build.json",JSON.stringify({schema:1,repository:process.env.GITHUB_REPOSITORY,source:process.env.SOURCE_SHA,controller:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,runAttempt:process.env.GITHUB_RUN_ATTEMPT,version:process.env.VERSION},null,2)+"\n")'
           (cd release-assets && sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS.txt")
           cp "$RUNNER_TEMP/SHA256SUMS.txt" release-assets/SHA256SUMS.txt
+      - name: Sign the build provenance and complete asset inventory
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.FORK_UPDATER_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          node "$RUNNER_TEMP/fork-signer/node_modules/@tauri-apps/cli/tauri.js" signer sign release-assets/SHA256SUMS.txt
+          base64 --decode release-assets/SHA256SUMS.txt.sig > "$RUNNER_TEMP/fork-inventory-signature"
+          minisign -Vm release-assets/SHA256SUMS.txt -p "$RUNNER_TEMP/fork-updater.pub" -x "$RUNNER_TEMP/fork-inventory-signature" -q
       - name: Create or resume draft for the tested commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -152,22 +163,22 @@ jobs:
             git fetch --no-tags origin "refs/tags/$TAG:refs/fork-publish/tag"
             test "$(git rev-parse 'refs/fork-publish/tag^{commit}')" = "$SOURCE_SHA" || { echo 'Draft tag points to another commit'; exit 1; }
           else
-            test -z "$(git ls-remote --refs origin "refs/tags/$TAG")" || { echo 'Tag already exists without a draft release'; exit 1; }
-            gh release create "$TAG" --target "$SOURCE_SHA" --draft --title "Cockpit Tools fork $VERSION" --notes-file "$RUNNER_TEMP/fork-notes.md"
+            existing_tag="$(git ls-remote --refs origin "refs/tags/$TAG" | cut -f1)"
+            if [ -n "$existing_tag" ]; then
+              test "$existing_tag" = "$SOURCE_SHA" || { echo 'Existing tag points to another commit'; exit 1; }
+            else
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$SOURCE_SHA"
+            fi
+            gh release create "$TAG" --verify-tag --target "$SOURCE_SHA" --draft --title "Cockpit Tools fork $VERSION" --notes-file "$RUNNER_TEMP/fork-notes.md"
           fi
           node scripts/release/upload_release_assets.cjs "$TAG" release-assets/*
-      - name: Publish complete release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Await local Apple signing and notarization
         shell: bash
         run: |
           set -euo pipefail
-          current="$(git ls-remote --refs origin refs/heads/codex/local-customizations | cut -f1)"
-          test "$current" = "$SOURCE_SHA" || { echo 'Customization branch changed before publication'; exit 1; }
-          test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
-          gh release edit "$TAG" --draft=false --prerelease=false --latest
-      - name: Verify public updater manifests
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/release/verify_published_updater_manifests.cjs --version "$VERSION" --repo "$GITHUB_REPOSITORY" --release-base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG" --targets "$TARGETS" --legacy
+          {
+            echo '## Draft ready; not published'
+            echo "Release: $TAG; source: $SOURCE_SHA"
+            echo 'Run scripts/release/finalize_fork_release.cjs on the signing Mac.'
+            echo 'Publication requires Developer ID, accepted Apple notarization, refreshed updater signatures and checksums.'
+          } >> "$GITHUB_STEP_SUMMARY"
