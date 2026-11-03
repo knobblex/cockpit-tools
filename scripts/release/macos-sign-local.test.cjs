@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { signLocalDmg, validateOptions, inspectTree, verifyBundleIdentity, signApp, submitNotarization, sha256 } = require('./macos-sign-local.cjs');
+const { spawnSync } = require('node:child_process');
+const { signLocalDmg, validateOptions, inspectTree, verifyBundleIdentity, signApp, submitNotarization, verifyUpdaterArchiveLayout, sha256 } = require('./macos-sign-local.cjs');
 
 const identity = 'Developer ID Application: Example (ABCDEFGHIJ)';
 const validInfo = `Authority=${identity}\nTeamIdentifier=ABCDEFGHIJ\nCodeDirectory flags=0x10000(runtime)\n`;
@@ -71,7 +72,8 @@ function fixture(t, overrides = {}) {
         const snapshot = path.join(directory, `tar-snapshot-${snapshots.size}`);
         fs.cpSync(path.join(args[3], args[4]), path.join(snapshot, args[4]), { recursive: true });
         snapshots.set(args[1], snapshot);
-        fs.writeFileSync(args[1], 'updater archive from stapled app');
+        const result = spawnSync('tar', args, { encoding: 'utf8', env: commandOptions?.env });
+        if (result.error || result.status !== 0) throw new Error(result.stderr || result.error?.message || 'tar failed');
       } else {
         fs.cpSync(snapshots.get(args[1]), args[3], { recursive: true });
       }
@@ -192,10 +194,23 @@ test('the complete pipeline signs and notarizes both app and DMG before exposing
   assert.ok(!fs.existsSync(`${result.dmg}.sha256`), 'must not expose the checksum made before DMG signing');
   const appStaple = f.calls.findIndex(([exe, args]) => exe === 'xcrun' && args[1] === 'staple' && args[2].endsWith('.app'));
   const archive = f.calls.findIndex(([exe, args]) => exe === 'tar' && args[0] === '-czf');
+  assert.equal(f.calls[archive][2].env.COPYFILE_DISABLE, '1');
   const packageDmg = f.calls.findIndex(([exe]) => exe === process.execPath);
   assert.ok(appStaple < archive && archive < packageDmg);
   const submitCalls = f.calls.filter(([exe, args]) => exe === 'xcrun' && args[1] === 'submit');
   assert.ok(submitCalls.every(([, args, options]) => args.includes('30m') && options.timeout === 31 * 60_000));
+});
+
+test('updater archive rejects the AppleDouble entry that Tauri cannot install', (t) => {
+  const directory = temp(t);
+  makeApp(directory);
+  fs.writeFileSync(path.join(directory, '._Cockpit Tools.app'), 'macOS metadata');
+  const archive = path.join(directory, 'broken.tar.gz');
+  const result = spawnSync('tar', ['-czf', archive, '-C', directory, '._Cockpit Tools.app', 'Cockpit Tools.app'], {
+    encoding: 'utf8', env: { ...process.env, COPYFILE_DISABLE: '1' },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.throws(() => verifyUpdaterArchiveLayout(archive, 'Cockpit Tools.app'), /Invalid updater archive entry/);
 });
 
 test('a rejected app or DMG keeps the existing input and exposes no release asset', async (t) => {

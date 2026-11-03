@@ -365,7 +365,7 @@ jobs:
           set -euo pipefail
           cd "${{ matrix.release_dir }}/bundle/macos"
           test -d "Cockpit Tools.app"
-          tar -czf "Cockpit Tools.app.tar.gz" "Cockpit Tools.app"
+          COPYFILE_DISABLE=1 tar -czf "Cockpit Tools.app.tar.gz" "Cockpit Tools.app"
 
       - name: 📤 Upload build bundles
         if: success()
