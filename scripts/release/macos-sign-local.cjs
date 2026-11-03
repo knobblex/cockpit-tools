@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const zlib = require('node:zlib');
 const { command, verifyApp } = require('./macos-signing.cjs');
 const { createDmgMounts } = require('./dmg-mounts.cjs');
 const { verifyTree } = require('./package-local-dmg.cjs');
@@ -137,6 +138,57 @@ function verifyDmg(dmg, team, run = command) {
   run('spctl', ['--assess', '--type', 'open', '--context', 'context:primary-signature', '--verbose=2', dmg]);
 }
 
+// The Tauri updater strips the first path component from every entry. A
+// top-level AppleDouble file therefore unpacks onto the extraction directory
+// itself and fails. Inspect raw tar headers: macOS tar hides those files when
+// listing or extracting an archive, so a normal round trip cannot detect them.
+function verifyUpdaterArchiveLayout(archive, appName) {
+  const data = zlib.gunzipSync(fs.readFileSync(archive));
+  let offset = 0;
+  let first = true;
+  let pendingPath;
+  while (offset + 512 <= data.length) {
+    const header = data.subarray(offset, offset + 512);
+    if (header.every(byte => byte === 0)) break;
+    const text = bytes => bytes.toString('utf8').replace(/\0.*$/s, '');
+    const rawSize = text(header.subarray(124, 136)).trim();
+    if (rawSize && !/^[0-7]+$/.test(rawSize)) throw new Error('Unsupported tar entry size');
+    const size = parseInt(rawSize || '0', 8);
+    const payload = offset + 512;
+    const end = payload + Math.ceil(size / 512) * 512;
+    if (!Number.isSafeInteger(size) || end > data.length) throw new Error('Truncated updater archive');
+    const type = String.fromCharCode(header[156] || 48);
+    if (type === 'x') {
+      // PAX paths override the following header and are consumed by tar-rs.
+      const pax = data.subarray(payload, payload + size);
+      for (let pos = 0; pos < pax.length;) {
+        const space = pax.indexOf(32, pos);
+        const length = space < 0 ? NaN : Number(pax.subarray(pos, space).toString());
+        if (!Number.isSafeInteger(length) || length <= space - pos + 1 || pos + length > pax.length) {
+          throw new Error('Invalid PAX header in updater archive');
+        }
+        const record = pax.subarray(space + 1, pos + length - 1).toString('utf8');
+        if (record.startsWith('path=')) pendingPath = record.slice(5);
+        pos += length;
+      }
+    } else if (type === 'g' || type === 'L' || type === 'K') {
+      throw new Error('Unsupported extended header in updater archive');
+    } else {
+      const prefix = text(header.subarray(345, 500));
+      const name = pendingPath || [prefix, text(header.subarray(0, 100))].filter(Boolean).join('/');
+      pendingPath = undefined;
+      const parts = name.replace(/\/$/, '').split('/');
+      if (parts[0] !== appName || parts.some(part => !part || part === '.' || part === '..' || part.startsWith('._'))) {
+        throw new Error(`Invalid updater archive entry: ${name}`);
+      }
+      if (first && (type !== '5' || parts.length !== 1)) throw new Error('Updater archive must begin with its app directory');
+      first = false;
+    }
+    offset = end;
+  }
+  if (first || pendingPath) throw new Error('Updater archive contains no complete app directory');
+}
+
 async function signLocalDmg(options, deps = {}) {
   validateOptions(options);
   const run = deps.run || command;
@@ -181,7 +233,10 @@ async function signLocalDmg(options, deps = {}) {
     let archive = null;
     if (outputArchive) {
       archive = path.join(work, path.basename(outputArchive));
-      run('tar', ['-czf', archive, '-C', work, path.basename(app)]);
+      run('tar', ['-czf', archive, '-C', work, path.basename(app)], {
+        env: { ...process.env, COPYFILE_DISABLE: '1' },
+      });
+      verifyUpdaterArchiveLayout(archive, path.basename(app));
       const extracted = path.join(work, 'verify-updater');
       fs.mkdirSync(extracted);
       run('tar', ['-xzf', archive, '-C', extracted]);
@@ -249,4 +304,4 @@ if (require.main === module) {
     .catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
 
-module.exports = { signLocalDmg, validateOptions, inspectTree, verifyBundleIdentity, signApp, submitNotarization, verifyDmg, sha256 };
+module.exports = { signLocalDmg, validateOptions, inspectTree, verifyBundleIdentity, signApp, submitNotarization, verifyDmg, verifyUpdaterArchiveLayout, sha256 };

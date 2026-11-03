@@ -183,7 +183,7 @@ node scripts/release/finalize_fork_release.cjs \
   --publish
 ```
 
-Apple 证书私钥留在本机钥匙串，API 私钥和 Fork updater 私钥仅通过本机路径引用，不提交到仓库或上传 GitHub。脚本下载指定源码对应的草稿，先核验校验和清单的 Fork 签名、资产 SHA-256、标签指向和成功构建记录，再对三个 macOS 架构的 App 及最终 DMG 完成 Developer ID 签名、公证、票据附加和 Gatekeeper 校验。随后由已公证的 App 重建 ARM/Intel 自动更新包，重新生成更新清单与校验和，并签署更新包和校验和清单。签名、公证或上传前校验失败均不公开草稿。不带 `--publish` 时仍会向 Apple 提交公证并验证本地产物；GitHub 草稿的更新和公开由 `--publish` 启用。可用 `--notes-file <file>` 指定发布说明，不要假定重复运行会复用先前的公证结果。
+Apple 证书私钥留在本机钥匙串，API 私钥和 Fork updater 私钥仅通过本机路径引用，不提交到仓库或上传 GitHub。脚本下载指定源码对应的草稿，先核验校验和清单的 Fork 签名、资产 SHA-256、标签指向和成功构建记录，再对三个 macOS 架构的 App 及最终 DMG 完成 Developer ID 签名、公证、票据附加和 Gatekeeper 校验。随后由已公证的 App 重建 ARM/Intel 自动更新包，禁止产生 AppleDouble 元数据文件并检查原始归档结构，重新生成更新清单与校验和，并签署更新包和校验和清单。签名、公证或上传前校验失败均不公开草稿。不带 `--publish` 时仍会向 Apple 提交公证并验证本地产物；GitHub 草稿的更新和公开由 `--publish` 启用。可用 `--notes-file <file>` 指定发布说明，不要假定重复运行会复用先前的公证结果。
 
 只有最终校验通过，`--publish` 才上传完整资产、公开 Release 并验证公共更新清单。本 Fork 不发布 Homebrew Cask；更新包使用本 Fork 的独立公钥和 Release 地址，旧版上游 App 需先手动安装 Fork 包才能进入此通道。Tauri 更新签名与 Apple 签名、公证分别校验，Windows Authenticode 不在此流程范围内。
 
