@@ -444,6 +444,13 @@ pub trait Host: Send + Sync + 'static {
     ) -> BoxFuture<'a, ()> {
         self.route_failed_attempt(route, model, 429, retry_after, false, None)
     }
+    /// Wait for a managed premium seat to move after a definite pre-execution quota rejection.
+    fn recover_premium_seat<'a>(
+        &'a self, _caller: &'a Caller, _route: &'a Route, _status: u16,
+        _code: &'a str, _started_at_ms: i64,
+    ) -> BoxFuture<'a, bool> {
+        Box::pin(async { false })
+    }
     fn retry_cooldown_wait<'a>(
         &'a self,
         _caller: &'a Caller,

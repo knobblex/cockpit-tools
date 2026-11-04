@@ -5,6 +5,8 @@ use futures_util::StreamExt;
 struct MatrixHost {
     inner: FixtureHost,
     oauth: bool,
+    seat_managed: bool,
+    seat_rotated: std::sync::atomic::AtomicBool,
 }
 impl Host for MatrixHost {
     fn authorize<'a>(&'a self, b: &'a str) -> BoxFuture<'a, Result<Caller, ServiceError>> {
@@ -19,6 +21,10 @@ impl Host for MatrixHost {
         r: RouteRequest,
     ) -> BoxFuture<'a, Result<Route, ServiceError>> {
         Box::pin(async move {
+            if self.seat_managed && r.excluded_account_ids.contains(&"0".into())
+                && !self.seat_rotated.load(Ordering::SeqCst) {
+                return Err(ServiceError::new(503, "seat_rotation_pending", "Seat has not moved"));
+            }
             let mut route = self.inner.route(c, r).await?;
             route.chatgpt = self.oauth && route.account_id == "0";
             assert!(
@@ -42,12 +48,24 @@ impl Host for MatrixHost {
     fn record(&self, r: RequestReport) -> BoxFuture<'_, ()> {
         self.inner.record(r)
     }
+    fn recover_premium_seat<'a>(&'a self, _: &'a Caller, route: &'a Route, status: u16,
+        code: &'a str, _: i64) -> BoxFuture<'a, bool> {
+        Box::pin(async move {
+            if !self.seat_managed { return false; }
+            assert_eq!((route.account_id.as_str(), status, code), ("0", 429, "usage_limit_reached"));
+            assert!(route.permit.is_none());
+            self.seat_rotated.store(true, Ordering::SeqCst);
+            true
+        })
+    }
 }
 
 #[tokio::test]
 async fn nonofficial_http_quota_recovery_for_oauth_and_api_key_long_history() {
     let cases = [
         ("http429", 0, "", false, true),
+        ("seat_http429", 0, "", false, true),
+        ("seat_delayed", 400, "response.metadata", false, true),
         ("immediate_usage", 0, "", false, true),
         ("delayed_usage", 400, "", false, true),
         (
@@ -81,6 +99,8 @@ async fn nonofficial_http_quota_recovery_for_oauth_and_api_key_long_history() {
                 let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
                 let host = Arc::new(MatrixHost {
                     oauth,
+                    seat_managed: name.starts_with("seat_"),
+                    seat_rotated: std::sync::atomic::AtomicBool::new(false),
                     inner: FixtureHost {
                         base: format!("http://{}", listener.local_addr().unwrap()),
                         policy: ExecutionPolicy {
@@ -113,7 +133,7 @@ async fn nonofficial_http_quota_recovery_for_oauth_and_api_key_long_history() {
                 if index==1 { return Response::builder().header("content-type","text/event-stream").body(Body::from(format!("data: {}\n\ndata: {}\n\n",json!({"type":"response.created","response":{"id":"backup-created","status":"in_progress"}}),completed()))).unwrap(); }
                 let code=if name=="sharing_quota" {"subscription_sharing_usage_limit_exceeded"} else {"usage_limit_reached"};
                 let error=json!({"code":code,"message":"Synthetic quota exhausted","resets_in_seconds":60});
-                if name=="http429" {return Response::builder().status(429).header("content-type","application/json").body(Body::from(json!({"error":error}).to_string())).unwrap();}
+                if name=="http429" || name=="seat_http429" {return Response::builder().status(429).header("content-type","application/json").body(Body::from(json!({"error":error}).to_string())).unwrap();}
                 let mut prefix=format!("data: {}\n\ndata: {}\n\n",created(),json!({"type":"response.in_progress","response":{"output":[],"usage":null}}));
                 if !metadata.is_empty() {prefix.push_str(&format!("data: {}\n\n",json!({"type":metadata,"metadata":{"fixture":true}})));}
                 if output {prefix.push_str(&format!("data: {}\n\n",json!({"type":match name {"tool_then_quota"=>"response.function_call_arguments.delta","reasoning_then_quota"=>"response.reasoning_text.delta",_=>"response.output_text.delta"},"delta":"already generated"})));}
@@ -201,6 +221,7 @@ async fn nonofficial_http_quota_recovery_for_oauth_and_api_key_long_history() {
                     json!({"oauth":oauth,"stream":streaming,"case":name,"http_status":status,"actual_a":a,"actual_b":b,"success":report.success,"report_status":report.status,"report_error":report.error,"retry_after_ms":report.retry_after.map(|v|v.as_millis()),"route_failed_hooks":hooks,"attempts":report.diagnostics.as_ref().unwrap().attempts.len(),"official_binding":false})
                 );
                 assert_eq!(a, 1, "{name}");
+                if name.starts_with("seat_") { assert!(host.seat_rotated.load(Ordering::SeqCst)); assert!(!body.contains("usage_limit_reached")); }
                 assert_eq!(
                     b,
                     usize::from(want_rotate),
@@ -240,7 +261,8 @@ async fn nonofficial_http_late_quota_does_not_restart_credential_budget() {
             failures: Mutex::new(vec![]),
             reports: Mutex::new(vec![]),
         };
-        let host = Arc::new(MatrixHost { inner, oauth: true });
+        let host = Arc::new(MatrixHost { inner, oauth: true, seat_managed: false,
+            seat_rotated: std::sync::atomic::AtomicBool::new(false) });
         let upstream_host = host.clone();
         let app=Router::new().fallback(move |uri:axum::extract::OriginalUri| {
             let host=upstream_host.clone(); async move {

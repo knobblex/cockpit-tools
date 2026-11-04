@@ -344,6 +344,17 @@ async fn seat_fresh_quota(
     config: &seat::Config,
     id: &str,
 ) -> Result<(seat::QuotaEvidence, Option<i64>), seat::QuotaReadError> {
+    let first = seat_fresh_quota_once(config, id).await;
+    if first.as_ref().err().is_some_and(seat::QuotaReadError::is_concurrent_update) {
+        return seat_fresh_quota_once(config, id).await;
+    }
+    first
+}
+
+async fn seat_fresh_quota_once(
+    config: &seat::Config,
+    id: &str,
+) -> Result<(seat::QuotaEvidence, Option<i64>), seat::QuotaReadError> {
     let original = seat_confirm_team_member(config, id).await?;
     let mut account = timeout(
         Duration::from_secs(30),
@@ -410,13 +421,24 @@ async fn seat_fresh_quota(
         // indirectly invalidate a holder that is still serving requests.
         return Ok(evidence);
     }
-    let current =
-        codex_account::save_refreshed_quota(&account, result.quota, result.plan_type, started)
-            .map_err(|_| "额度查询期间成员授权发生变化，请重试")?;
+    let current = codex_account::save_refreshed_quota(&account, result.quota, result.plan_type, started)
+        .map_err(|error| seat_quota_commit_error(&account, codex_account::load_account(id).as_ref(), &error))?;
     // A quota refresh can change the plan, and concurrent metadata refreshes can
     // identify a personal workspace. Never publish from the older local hint.
     seat_require_team_identity(&current)?;
     Ok(evidence)
+}
+
+fn seat_quota_commit_error(original: &CodexAccount, current: Option<&CodexAccount>, error: &str) -> seat::QuotaReadError {
+    if error == "CODEX_STALE_QUOTA_REQUEST" && current.is_some_and(|current|
+        current.account_id == original.account_id && current.user_id == original.user_id
+            && current.organization_id == original.organization_id
+            && seat_require_team_identity(current).is_ok() && native_eligible(current)
+            && !current.is_api_key_auth() && !current.is_agent_identity_auth() && !current.is_web_session_auth()) {
+        seat::QuotaReadError::concurrent_update()
+    } else {
+        "额度查询期间成员授权或身份发生变化，请重新核对".into()
+    }
 }
 
 fn seat_live_quota_evidence(
@@ -850,29 +872,43 @@ async fn premium_seat_request_failed(
     status: u16,
     code: Option<&str>,
     started_at_ms: i64,
-) {
+) -> bool {
     let Ok(dir) = seat_dir() else {
-        return;
+        return false;
     };
-    let Ok(_lock) = seat::coordinator_lock(&dir) else {
-        return;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
+    let _lock = loop {
+        match seat::coordinator_lock(&dir) {
+            Ok(lock) => break lock,
+            Err(_) if tokio::time::Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            Err(_) => return false,
+        }
     };
     let Ok(mut state) = seat::load(&dir) else {
-        return;
+        return false;
     };
+    if state.config.as_ref().is_some_and(|config| config.enabled && config.api_key_id == key)
+        && state.holder_account_id.as_deref().is_some_and(|holder| holder != account && state.allows(Some(key), holder, false, seat_now()))
+    {
+        return true;
+    }
     if seat_pause_path(&dir).exists() {
-        return;
+        return false;
     }
     let claimed = SEAT_REQUEST_CHECK_GATE
         .get_or_init(Default::default)
         .lock()
         .is_ok_and(|mut gate| gate.claim(&state, key, account, status, code, started_at_ms));
     if !claimed {
-        return;
+        return false;
     }
     if let Err(error) = run_premium_seat_attempt(&dir, &mut state).await {
         logger::log_warn(&format!("请求触发的高级席位核对失败：{error}"));
     }
+    state.holder_account_id.as_deref().is_some_and(|holder|
+        holder != account && state.allows(Some(key), holder, false, seat_now()))
 }
 
 async fn run_premium_seat_attempt(dir: &Path, state: &mut seat::State) -> Result<(), String> {
@@ -968,6 +1004,25 @@ impl seat::worker::Backend for PremiumSeatBackend<'_> {
         id: &str,
     ) -> Result<(seat::QuotaEvidence, Option<i64>), seat::QuotaReadError> {
         seat_fresh_quota(self.config, id).await
+    }
+    async fn target_quota(
+        &self,
+        id: &str,
+        remaining: Duration,
+    ) -> Result<(seat::QuotaEvidence, Option<i64>), seat::QuotaReadError> {
+        let deadline = tokio::time::Instant::now() + remaining;
+        loop {
+            if seat_pause_path(&seat_dir()?).exists() {
+                return Ok((seat::QuotaEvidence::Unknown, None));
+            }
+            let result = seat_fresh_quota(self.config, id).await;
+            match result {
+                Ok((seat::QuotaEvidence::Available, reset)) => return Ok((seat::QuotaEvidence::Available, reset)),
+                Err(error) if !error.retryable() => return Err(error),
+                _ if tokio::time::Instant::now() >= deadline => return Ok((seat::QuotaEvidence::Unknown, None)),
+                _ => tokio::time::sleep(Duration::from_secs(3).min(deadline.saturating_duration_since(tokio::time::Instant::now()))).await,
+            }
+        }
     }
     async fn probe(&self, id: &str) -> Result<(), String> {
         seat_business_probe(self.config, id).await

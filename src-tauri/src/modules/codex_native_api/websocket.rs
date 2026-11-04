@@ -1495,6 +1495,9 @@ async fn retry_opening_failure(
         && super::retry::can_switch_account(prepared)
     {
         tracker.release_route();
+        prepared.route.permit = None;
+        let code = error.response_error.as_ref().and_then(super::retry::premium_seat_code);
+        super::retry::recover_premium_seat(state, prepared, tracker, error.status, code.as_deref(), deadline).await?;
         let mut stop = state.stop.clone();
         let replacement = tokio::select! {
             _ = stop.wait() => return Err(stopping_error()),

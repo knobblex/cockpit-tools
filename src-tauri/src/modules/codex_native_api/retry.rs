@@ -512,7 +512,7 @@ async fn send_inner(
             request_scoped = inspected.5;
             capability_rejection = inspected.6;
             official_failure = inspected.7;
-            upstream_error_code = inspected.8.clone();
+            upstream_error_code = inspected.10.as_ref().and_then(premium_seat_code).or_else(|| inspected.8.clone());
             execution_observed = inspected.9;
             tracker.capture_request_fault(request_scoped);
             tracker.attempt_result(status.as_u16(), false, Some(inspected.8.as_deref().unwrap_or("upstream_http_error")));
@@ -683,6 +683,8 @@ async fn send_inner(
             .await?;
             failure_recorded = true; }
             tracker.release_route();
+            prepared.route.permit = None;
+            recover_premium_seat(state, prepared, tracker, status.as_u16(), upstream_error_code.as_deref(), deadline).await?;
             match alternate(state, prepared, deadline).await {
                 Ok(()) => {
                     if let Some(route) = &failed_route {
@@ -1136,6 +1138,9 @@ pub(super) async fn recover_before_output(
     let used=tracker.upstream_account_ids().len().max(1);
     if can_switch_account(prepared) && (policy.credential_retries==0 || used<usize::from(policy.credential_retries)) {
         tracker.release_route();
+        prepared.route.permit = None;
+        let code = premium_seat_code(event);
+        recover_premium_seat(state, prepared, tracker, status, code.as_deref(), deadline).await?;
         match alternate(state,prepared,deadline).await {
             Ok(()) => {
                 if overload { note_failed_route(state,&failed_route,503,wait,scope,message.as_deref(),deadline).await?; }
@@ -1156,6 +1161,45 @@ pub(super) async fn recover_before_output(
         note_failed_route(state,&failed_route,503,wait,scope,message.as_deref(),deadline).await?;
     }
     Ok(false)
+}
+
+pub(super) fn premium_seat_code(value: &Value) -> Option<String> {
+    let error = super::diagnostics::error_object(value);
+    [error.get("code"), error.get("type")].into_iter().flatten()
+        .filter_map(Value::as_str)
+        .find(|code| crate::modules::codex_seat_rotation::worker::is_exhaustion_error(429, Some(code)))
+        .map(str::to_owned)
+}
+
+#[cfg(test)]
+#[test]
+fn premium_seat_code_requires_structured_exhaustion_evidence() {
+    for value in [serde_json::json!({"error":{"type":"usage_limit_reached"}}),
+        serde_json::json!({"response":{"error":{"code":"rate_limit_exceeded","type":"usage_limit_reached"}}}),
+        serde_json::json!({"code":"subscription_sharing_usage_limit_exceeded"})] {
+        assert!(premium_seat_code(&value).is_some());
+    }
+    for value in [serde_json::json!({"error":{"code":"rate_limit_exceeded"}}),
+        serde_json::json!({"error":{"message":"quota exceeded"}})] {
+        assert!(premium_seat_code(&value).is_none());
+    }
+}
+
+pub(super) async fn recover_premium_seat(
+    state: &AppState, prepared: &Prepared, tracker: &RequestTracker,
+    status: u16, code: Option<&str>, deadline: Deadline,
+) -> Result<(), ServiceError> {
+    let Some(code) = code else { return Ok(()) };
+    if !crate::modules::codex_seat_rotation::worker::is_exhaustion_error(status, Some(code)) {
+        return Ok(());
+    }
+    let mut stop = state.stop.clone();
+    tokio::select! {
+        _ = stop.wait() => Err(stopping_error()),
+        result = deadline::timeout_at(deadline, state.host.recover_premium_seat(
+            &prepared.caller, &prepared.route, status, code, tracker.request_started_at_ms(),
+        )) => result.map(|_| ()).map_err(|_| total_timeout()),
+    }
 }
 
 pub(super) fn remaining_credential_policy(

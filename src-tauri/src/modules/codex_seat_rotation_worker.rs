@@ -17,6 +17,13 @@ pub trait Backend: Sync {
         &self,
         account: &str,
     ) -> impl Future<Output = Result<(QuotaEvidence, Option<i64>), QuotaReadError>> + Send;
+    fn target_quota(
+        &self,
+        account: &str,
+        _remaining: Duration,
+    ) -> impl Future<Output = Result<(QuotaEvidence, Option<i64>), QuotaReadError>> + Send {
+        self.quota(account)
+    }
     fn probe(&self, account: &str) -> impl Future<Output = Result<(), String>> + Send;
     fn swap(&self, operation: &Operation) -> impl Future<Output = Result<(), String>> + Send;
 }
@@ -46,7 +53,7 @@ pub fn is_exhaustion_error(status: u16, code: Option<&str>) -> bool {
     status == 429
         && matches!(
             code,
-            Some("usage_limit_reached" | "insufficient_quota" | "quota_exceeded")
+            Some("usage_limit_reached" | "insufficient_quota" | "quota_exceeded" | "subscription_sharing_usage_limit_exceeded")
         )
 }
 
@@ -735,7 +742,12 @@ async fn verify_target<B: Backend>(
 ) -> Result<(), String> {
     let op = state.operation.clone().ok_or("验证操作缺失")?;
     validate_operation_scope(backend, &op).await?;
-    let (evidence, _) = backend.quota(&op.target_account_id).await?;
+    let remaining = VERIFY_TIMEOUT_SECS.saturating_sub(
+        backend.now().saturating_sub(op.submitted_at.unwrap_or(op.created_at)),
+    );
+    let (evidence, _) = backend
+        .target_quota(&op.target_account_id, Duration::from_secs(remaining as u64))
+        .await?;
     if evidence != QuotaEvidence::Available {
         if backend.now() - op.submitted_at.unwrap_or(op.created_at) < VERIFY_TIMEOUT_SECS {
             state.message =

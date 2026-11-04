@@ -609,6 +609,12 @@ impl RequestTracker {
         self.diagnostics.as_ref().map_or("", |context| context.request_id.as_str())
     }
 
+    pub(super) fn request_started_at_ms(&self) -> i64 {
+        self.diagnostics.as_ref().map(|context| context.started_at_ms)
+            .filter(|at| *at > 0)
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis().saturating_sub(self.started.elapsed().as_millis().min(i64::MAX as u128) as i64))
+    }
+
     pub(super) fn request_size(&mut self, size: super::diagnostics::RequestSize) {
         self.request_size = Some(size);
     }

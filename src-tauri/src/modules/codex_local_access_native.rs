@@ -991,6 +991,30 @@ impl native_contract::Host for NativeHostBridge {
         })
     }
 
+    fn recover_premium_seat<'a>(
+        &'a self,
+        caller: &'a native_contract::Caller,
+        route: &'a native_contract::Route,
+        status: u16,
+        code: &'a str,
+        started_at_ms: i64,
+    ) -> futures_util::future::BoxFuture<'a, bool> {
+        if caller.id == NATIVE_INTERNAL_CALLER || !route.chatgpt
+            || route.official_registration_id.is_some() || native_is_reserve_model(&route.model)
+            || !seat::worker::is_exhaustion_error(status, Some(code))
+        {
+            return Box::pin(async { false });
+        }
+        let key = caller.id.clone();
+        let account = route.account_id.clone();
+        let code = code.to_owned();
+        // The mutation must finish reconciliation even if the caller disconnects.
+        let task = tauri::async_runtime::spawn(async move {
+            premium_seat_request_failed(&key, &account, status, Some(&code), started_at_ms).await
+        });
+        Box::pin(async move { task.await.unwrap_or(false) })
+    }
+
     fn route_failed_with_context<'a>(
         &'a self,
         account_id: &'a str,

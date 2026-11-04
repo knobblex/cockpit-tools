@@ -21,6 +21,7 @@ pub const DRAIN_TIMEOUT_SECS: u64 = 60;
 pub struct QuotaReadError {
     retryable: bool,
     query_only: bool,
+    concurrent_update: bool,
     message: String,
 }
 
@@ -29,6 +30,7 @@ impl QuotaReadError {
         Self {
             retryable: true,
             query_only: true,
+            concurrent_update: false,
             message: message.into(),
         }
     }
@@ -39,6 +41,15 @@ impl QuotaReadError {
 
     pub fn preserves_publication(&self) -> bool {
         self.query_only
+    }
+
+    pub fn concurrent_update() -> Self {
+        Self { retryable: true, query_only: true, concurrent_update: true,
+            message: "额度查询与成员更新并发，请重试".into() }
+    }
+
+    pub fn is_concurrent_update(&self) -> bool {
+        self.concurrent_update
     }
 
     pub fn from_fetch(error: &str) -> Self {
@@ -54,6 +65,7 @@ impl QuotaReadError {
             return Self {
                 retryable: matches!(status, 408 | 429 | 500..=599),
                 query_only: true,
+                concurrent_update: false,
                 message: format!("实时额度查询失败（HTTP {status}）；未触发调换"),
             };
         }
@@ -66,6 +78,7 @@ impl From<&str> for QuotaReadError {
         Self {
             retryable: false,
             query_only: false,
+            concurrent_update: false,
             message: message.into(),
         }
     }
@@ -76,6 +89,7 @@ impl From<String> for QuotaReadError {
         Self {
             retryable: false,
             query_only: false,
+            concurrent_update: false,
             message,
         }
     }

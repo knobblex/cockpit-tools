@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn quota_commit_race_retries_only_for_the_same_eligible_member() {
+    let mut account = CodexAccount::new("fixture".into(), "fixture@example.invalid".into(),
+        crate::models::codex::CodexTokens { access_token: "old".into(), refresh_token: Some("refresh".into()), id_token: String::new() });
+    account.account_id = Some("workspace".into());
+    account.user_id = Some("member".into());
+    account.account_structure = Some("workspace".into());
+    let mut updated = account.clone();
+    updated.token_generation += 1;
+    assert!(seat_quota_commit_error(&account, Some(&updated), "CODEX_STALE_QUOTA_REQUEST").is_concurrent_update());
+    updated.user_id = Some("other".into());
+    assert!(!seat_quota_commit_error(&account, Some(&updated), "CODEX_STALE_QUOTA_REQUEST").retryable());
+    assert!(!seat_quota_commit_error(&account, None, "CODEX_STALE_QUOTA_REQUEST").retryable());
+    assert!(!seat_quota_commit_error(&account, Some(&account), "write failed").retryable());
+}
+
+#[test]
 fn incomplete_quota_metadata_is_unknown_but_explicit_free_is_rejected() {
     let available = json!({"rate_limit": {
         "allowed": true, "limit_reached": false,
