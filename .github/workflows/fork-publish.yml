@@ -133,7 +133,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf 'Fork version %s. Source commit: %s. Awaiting local Apple signing and notarization.\n' "$VERSION" "$SOURCE_SHA" > "$RUNNER_TEMP/fork-notes.md"
+          printf 'Fork version %s. Source commit: %s. Awaiting Apple signing and notarization on GitHub Actions.\n' "$VERSION" "$SOURCE_SHA" > "$RUNNER_TEMP/fork-notes.md"
           published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           node scripts/release/build_target_latest_json.cjs --version "$VERSION" --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets-dir release-assets --notes-file "$RUNNER_TEMP/fork-notes.md" --published-at "$published_at" --targets "$TARGETS" --output-dir release-assets
           node scripts/release/build_merged_latest_json.cjs --version "$VERSION" --tag "$TAG" --repo "$GITHUB_REPOSITORY" --assets-dir release-assets --notes-file "$RUNNER_TEMP/fork-notes.md" --published-at "$published_at" --output release-assets/latest.json
@@ -171,14 +171,38 @@ jobs:
             fi
             gh release create "$TAG" --verify-tag --target "$SOURCE_SHA" --draft --title "Cockpit Tools fork $VERSION" --notes-file "$RUNNER_TEMP/fork-notes.md"
           fi
+          test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true || { echo 'Release no longer a draft'; exit 1; }
+          gh release edit "$TAG" --notes-file "$RUNNER_TEMP/fork-notes.md"
           node scripts/release/upload_release_assets.cjs "$TAG" release-assets/*
-      - name: Await local Apple signing and notarization
+          receipt_count="$(gh release view "$TAG" --json assets --jq '[.assets[] | select(.name == "Apple-notarization.json")] | length')"
+          case "$receipt_count" in
+            0) ;;
+            1)
+              test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true || { echo 'Release no longer a draft'; exit 1; }
+              gh release delete-asset "$TAG" Apple-notarization.json --yes
+              ;;
+            *) echo 'Ambiguous Apple notarization receipt'; exit 1 ;;
+          esac
+      - name: Prepare metadata for Apple signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fork-signing-metadata"
+          node -e 'const fs=require("node:fs");fs.writeFileSync(process.env.RUNNER_TEMP+"/fork-signing-metadata/fork-signing-metadata.json",JSON.stringify({schema:1,tag:process.env.TAG,source:process.env.SOURCE_SHA,version:process.env.VERSION},null,2)+"\n")'
+      - name: Upload Apple signing metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: fork-signing-metadata-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fork-signing-metadata/fork-signing-metadata.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Await GitHub Apple signing and notarization
         shell: bash
         run: |
           set -euo pipefail
           {
             echo '## Draft ready; not published'
             echo "Release: $TAG; source: $SOURCE_SHA"
-            echo 'Run scripts/release/finalize_fork_release.cjs on the signing Mac.'
-            echo 'Publication requires Developer ID, accepted Apple notarization, refreshed updater signatures and checksums.'
+            echo 'A separate GitHub Actions workflow signs and notarizes the macOS assets after this run succeeds.'
+            echo 'The signed release remains a draft until it is explicitly published.'
           } >> "$GITHUB_STEP_SUMMARY"

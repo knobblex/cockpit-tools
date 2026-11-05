@@ -8,8 +8,9 @@ const { spawnSync } = require('node:child_process');
 const { createDmgMounts } = require('./dmg-mounts.cjs');
 
 const PROFILE = 'cockpit-notarization';
-const REQUIRED = ['APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD',
-  'APPLE_SIGNING_IDENTITY', 'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID'];
+const CERTIFICATE_REQUIRED = ['APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD',
+  'APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID'];
+const REQUIRED = [...CERTIFICATE_REQUIRED, 'APPLE_ID', 'APPLE_PASSWORD'];
 
 function command(executable, args, options = {}) {
   const { stdoutOnly = false, ...spawnOptions } = options;
@@ -29,8 +30,8 @@ function command(executable, args, options = {}) {
   return `${result.stdout || ''}${stdoutOnly ? '' : result.stderr || ''}`;
 }
 
-function validateCredentials(env) {
-  const missing = REQUIRED.filter((name) => !env[name]?.trim());
+function validateCredentials(env, certificateOnly = false) {
+  const missing = (certificateOnly ? CERTIFICATE_REQUIRED : REQUIRED).filter((name) => !env[name]?.trim());
   if (missing.length) throw new Error(`Missing macOS release secrets: ${missing.join(', ')}`);
   if (!/^[A-Z0-9]{10}$/.test(env.APPLE_TEAM_ID)
       || !env.APPLE_SIGNING_IDENTITY.startsWith('Developer ID Application: ')
@@ -39,8 +40,8 @@ function validateCredentials(env) {
   }
 }
 
-function prepare(env = process.env, run = command) {
-  validateCredentials(env);
+function prepare(env = process.env, run = command, certificateOnly = false) {
+  validateCredentials(env, certificateOnly);
   if (!env.GITHUB_ENV || !env.RUNNER_TEMP) throw new Error('prepare requires a GitHub Actions runner');
   const directory = fs.mkdtempSync(path.join(env.RUNNER_TEMP, 'cockpit-signing-'));
   fs.chmodSync(directory, 0o700);
@@ -65,9 +66,11 @@ function prepare(env = process.env, run = command) {
     if (!identities.includes(`"${env.APPLE_SIGNING_IDENTITY}"`)) {
       throw new Error('Imported certificate does not match APPLE_SIGNING_IDENTITY');
     }
-    run('xcrun', ['notarytool', 'store-credentials', PROFILE, '--keychain', keychain,
-      '--apple-id', env.APPLE_ID, '--team-id', env.APPLE_TEAM_ID, '--password', env.APPLE_PASSWORD]);
-    console.log('Developer ID identity and notarization credentials verified.');
+    if (!certificateOnly) {
+      run('xcrun', ['notarytool', 'store-credentials', PROFILE, '--keychain', keychain,
+        '--apple-id', env.APPLE_ID, '--team-id', env.APPLE_TEAM_ID, '--password', env.APPLE_PASSWORD]);
+    }
+    console.log(certificateOnly ? 'Developer ID identity verified.' : 'Developer ID identity and notarization credentials verified.');
   } finally {
     fs.rmSync(certificate, { force: true });
   }
@@ -155,9 +158,10 @@ if (require.main === module) {
     if (process.platform !== 'darwin') throw new Error('macOS is required');
     const [mode, bundleDir] = process.argv.slice(2);
     if (mode === 'prepare') prepare();
+    else if (mode === 'prepare-certificate') prepare(process.env, command, true);
     else if (mode === 'cleanup') cleanup();
     else if (mode === 'finalize' && bundleDir) finalize(path.resolve(bundleDir));
-    else throw new Error('Usage: macos-signing.cjs prepare|cleanup|finalize <bundle-directory>');
+    else throw new Error('Usage: macos-signing.cjs prepare|prepare-certificate|cleanup|finalize <bundle-directory>');
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

@@ -1,0 +1,267 @@
+name: 🍎 Fork Apple signing
+
+on:
+  workflow_run:
+    workflows: ["📦 Fork updater release", "🔄 Upstream Sync"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    if: >-
+      github.repository == 'knobblex/cockpit-tools' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      found: ${{ steps.artifact.outputs.found }}
+      controller: ${{ steps.controller.outputs.sha }}
+      run_id: ${{ steps.controller.outputs.run_id }}
+      run_attempt: ${{ steps.controller.outputs.run_attempt }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      source: ${{ steps.metadata.outputs.source }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - name: Verify completed controller run
+        id: controller
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$TRIGGER_RUN_ID" =~ ^[1-9][0-9]*$ && "$TRIGGER_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TRIGGER_RUN_ID/attempts/$TRIGGER_RUN_ATTEMPT" > "$RUNNER_TEMP/fork-controller.json"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          const expected = event.workflow_run;
+          const run = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/fork-controller.json`, 'utf8'));
+          const paths = {
+            '📦 Fork updater release': '.github/workflows/fork-publish.yml',
+            '🔄 Upstream Sync': '.github/workflows/upstream-sync.yml',
+          };
+          const repo = 'knobblex/cockpit-tools';
+          if (event.repository?.full_name !== repo || run.repository?.full_name !== repo
+              || expected.head_repository?.full_name !== repo || run.head_repository?.full_name !== repo
+              || run.id !== expected.id || run.run_attempt !== expected.run_attempt
+              || String(run.id) !== process.env.TRIGGER_RUN_ID || String(run.run_attempt) !== process.env.TRIGGER_RUN_ATTEMPT
+              || run.head_sha !== expected.head_sha || !/^[a-f0-9]{40}$/.test(run.head_sha || '')
+              || run.head_branch !== 'main' || expected.head_branch !== 'main'
+              || run.event !== expected.event || !['schedule', 'workflow_dispatch'].includes(run.event)
+              || run.status !== 'completed' || run.conclusion !== 'success'
+              || !paths[run.name] || run.path !== paths[run.name] || expected.name !== run.name) {
+            throw new Error('The triggering run is not a successful trusted controller run');
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `sha=${run.head_sha}\nrun_id=${run.id}\nrun_attempt=${run.run_attempt}\n`);
+          NODE
+
+      - name: Locate this attempt's release metadata
+        id: artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          name="fork-signing-metadata-$TRIGGER_RUN_ATTEMPT"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TRIGGER_RUN_ID/artifacts?name=$name&per_page=100" > "$RUNNER_TEMP/fork-artifacts.json"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const data = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/fork-artifacts.json`, 'utf8'));
+          const name = `fork-signing-metadata-${process.env.TRIGGER_RUN_ATTEMPT}`;
+          if (!Array.isArray(data.artifacts) || data.total_count !== data.artifacts.length || data.artifacts.length > 1) {
+            throw new Error('Ambiguous release metadata artifacts');
+          }
+          if (data.artifacts.length === 0) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'found=false\n');
+          } else {
+            const item = data.artifacts[0];
+            if (item.name !== name || item.expired || !Number.isSafeInteger(item.id) || item.id < 1
+                || !(item.size_in_bytes > 0 && item.size_in_bytes <= 65536)
+                || (item.workflow_run && String(item.workflow_run.id) !== process.env.TRIGGER_RUN_ID)) {
+              throw new Error('Invalid or expired release metadata artifact');
+            }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `found=true\nid=${item.id}\n`);
+          }
+          NODE
+
+      - name: Read and validate release metadata
+        if: steps.artifact.outputs.found == 'true'
+        id: metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/fork-signing-metadata.zip"
+          python3 <<'PY'
+          import json
+          import os
+          import re
+          import stat
+          import zipfile
+
+          archive = os.path.join(os.environ['RUNNER_TEMP'], 'fork-signing-metadata.zip')
+          with zipfile.ZipFile(archive) as z:
+              entries = z.infolist()
+              if len(entries) != 1 or entries[0].filename != 'fork-signing-metadata.json':
+                  raise ValueError('Unexpected metadata archive contents')
+              entry = entries[0]
+              mode = entry.external_attr >> 16
+              if entry.is_dir() or stat.S_ISLNK(mode) or entry.file_size > 4096:
+                  raise ValueError('Invalid metadata archive entry')
+              metadata = json.loads(z.read(entry).decode('utf-8'))
+          if not isinstance(metadata, dict) or set(metadata) != {'schema', 'tag', 'source', 'version'}:
+              raise ValueError('Invalid release metadata fields')
+          version = metadata['version']
+          source = metadata['source']
+          if (type(metadata['schema']) is not int or metadata['schema'] != 1
+                  or not isinstance(version, str) or not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', version)
+                  or not isinstance(source, str) or not re.fullmatch(r'[a-f0-9]{40}', source)
+                  or metadata['tag'] != f'fork-v{version}'):
+              raise ValueError('Invalid release tag, version or source')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f"tag={metadata['tag']}\nsource={source}\nversion={version}\n")
+          PY
+
+      - name: Summarize a run with no new draft
+        if: success() && steps.artifact.outputs.found == 'false'
+        run: echo 'No new Fork release draft was produced by the controller run.' >> "$GITHUB_STEP_SUMMARY"
+
+  sign-draft:
+    needs: inspect
+    if: needs.inspect.result == 'success' && needs.inspect.outputs.found == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 240
+    concurrency:
+      group: fork-updater-release
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout the verified controller, never the candidate
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.controller }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify controller is in trusted main history
+        shell: bash
+        env:
+          CONTROLLER_SHA: ${{ needs.inspect.outputs.controller }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CONTROLLER_SHA"
+          git merge-base --is-ancestor "$CONTROLLER_SHA" refs/remotes/origin/main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install isolated signing tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install minisign
+          mkdir -p "$RUNNER_TEMP/fork-signer"
+          cp package.json package-lock.json "$RUNNER_TEMP/fork-signer/"
+          npm ci --prefix "$RUNNER_TEMP/fork-signer" --ignore-scripts --include=dev --no-audit --no-fund
+
+      - name: Prepare private key files
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          FORK_UPDATER_PRIVATE_KEY: ${{ secrets.FORK_UPDATER_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const encoded = (process.env.APPLE_API_KEY || '').replace(/\s/g, '');
+          const updater = process.env.FORK_UPDATER_PRIVATE_KEY || '';
+          if (!encoded || !updater.trim() || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+            throw new Error('APPLE_API_KEY or FORK_UPDATER_PRIVATE_KEY is missing or invalid');
+          }
+          const key = Buffer.from(encoded, 'base64');
+          if (crypto.createPrivateKey(key).asymmetricKeyType !== 'ec') throw new Error('APPLE_API_KEY must be an EC private key');
+          const directory = path.join(process.env.RUNNER_TEMP, 'fork-private');
+          fs.mkdirSync(directory, { mode: 0o700 });
+          fs.writeFileSync(path.join(directory, 'AuthKey.p8'), key, { mode: 0o600 });
+          fs.writeFileSync(path.join(directory, 'updater.key'), updater, { mode: 0o600 });
+          NODE
+
+      - name: Import Developer ID into an isolated keychain
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/release/macos-signing.cjs prepare-certificate
+
+      - name: Sign, notarize, and update the verified draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.inspect.outputs.tag }}
+          SOURCE_SHA: ${{ needs.inspect.outputs.source }}
+          CONTROLLER_SHA: ${{ needs.inspect.outputs.controller }}
+          TRIGGER_RUN_ID: ${{ needs.inspect.outputs.run_id }}
+          TRIGGER_RUN_ATTEMPT: ${{ needs.inspect.outputs.run_attempt }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          node scripts/release/finalize_fork_release.cjs \
+            --tag "$TAG" --source-sha "$SOURCE_SHA" \
+            --work-dir "$RUNNER_TEMP/fork-finalize" \
+            --identity "$APPLE_SIGNING_IDENTITY" --team "$APPLE_TEAM_ID" \
+            --key-path "$RUNNER_TEMP/fork-private/AuthKey.p8" \
+            --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" \
+            --updater-key "$RUNNER_TEMP/fork-private/updater.key" \
+            --tauri-cli "$RUNNER_TEMP/fork-signer/node_modules/@tauri-apps/cli/tauri.js" \
+            --expected-run-id "$TRIGGER_RUN_ID" --expected-run-attempt "$TRIGGER_RUN_ATTEMPT" \
+            --expected-controller-sha "$CONTROLLER_SHA" --upload-draft
+
+      - name: Remove temporary signing credentials
+        if: always() && steps.checkout.outcome == 'success'
+        shell: bash
+        run: |
+          status=0
+          node scripts/release/macos-signing.cjs cleanup || status=$?
+          rm -rf -- "$RUNNER_TEMP/fork-private"
+          case "${COCKPIT_SIGNING_DIR:-}" in
+            "$RUNNER_TEMP"/cockpit-signing-*) rm -rf -- "$COCKPIT_SIGNING_DIR" ;;
+          esac
+          exit "$status"
+
+      - name: Summarize the signed draft
+        if: success()
+        shell: bash
+        env:
+          TAG: ${{ needs.inspect.outputs.tag }}
+        run: |
+          {
+            echo '## Apple signing complete; release remains a draft'
+            echo "Release: $TAG"
+            echo 'Review the signed assets and notarization records before publishing the draft.'
+          } >> "$GITHUB_STEP_SUMMARY"
