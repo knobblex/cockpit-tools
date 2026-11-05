@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Keep Apple credentials on the signing Mac. Only verified artifacts leave it.
+// Use Apple credentials on the signing Mac; upload only verified artifacts.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -126,8 +126,8 @@ function verifyUpdater(file, publicKey, workDir, commandRun = run) {
   commandRun('minisign', ['-Vm', file, '-p', publicKey, '-x', signature, '-q']);
 }
 
-function signUpdater(file, privateKey, publicKey, workDir, commandRun = run) {
-  commandRun(process.execPath, [path.join(ROOT, 'node_modules/@tauri-apps/cli/tauri.js'), 'signer', 'sign', '--private-key-path', privateKey, file], {
+function signUpdater(file, privateKey, publicKey, workDir, commandRun = run, tauriCli = path.join(ROOT, 'node_modules/@tauri-apps/cli/tauri.js')) {
+  commandRun(process.execPath, [tauriCli, 'signer', 'sign', '--private-key-path', privateKey, file], {
     env: { ...process.env, GH_REPO: REPO, TAURI_PRIVATE_KEY_PASSWORD: '' },
   });
   verifyUpdater(file, publicKey, workDir, commandRun);
@@ -204,11 +204,29 @@ function validateSignedResult(signed, expected) {
   }
 }
 
+function validateRequestedOptions(options) {
+  if (options.publish && options.uploadDraft) throw new Error('--publish and --upload-draft cannot be combined');
+  for (const name of ['expectedRunId', 'expectedRunAttempt']) {
+    if (options[name] !== undefined && (typeof options[name] !== 'string' || !/^[1-9]\d*$/.test(options[name]))) {
+      throw new Error(`${name} must be a positive decimal integer`);
+    }
+  }
+  if (options.expectedControllerSha !== undefined
+      && (typeof options.expectedControllerSha !== 'string' || !/^[a-f0-9]{40}$/.test(options.expectedControllerSha))) {
+    throw new Error('expectedControllerSha must be a full lowercase commit SHA');
+  }
+  if (options.tauriCli !== undefined && (typeof options.tauriCli !== 'string' || !options.tauriCli.trim())) {
+    throw new Error('tauriCli must be a path to the Tauri CLI');
+  }
+}
+
 async function finalizeFork(options, dependencies = {}) {
+  validateRequestedOptions(options);
   if ((dependencies.platform || process.platform) !== 'darwin') throw new Error('Run the finalizer on the signing Mac');
   const commandRun = dependencies.run || run;
   const api = dependencies.api || ghJson;
   const { tag, sourceSha: source, workDir, identity, team, keyPath, keyId, issuer, updaterKey } = options;
+  const tauriCli = options.tauriCli ? path.resolve(options.tauriCli) : path.join(ROOT, 'node_modules/@tauri-apps/cli/tauri.js');
   const version = /^fork-v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))$/.exec(tag || '')?.[1];
   if (!version || !/^[a-f0-9]{40}$/.test(source || '')) throw new Error('A stable Fork tag and full source SHA are required');
   for (const [name, value] of Object.entries({ workDir, identity, team, keyPath, keyId, issuer, updaterKey })) {
@@ -251,6 +269,13 @@ async function finalizeFork(options, dependencies = {}) {
   }
   const original = new Map(filesIn(downloaded).map(({ name, file }) => [name, sha256(file)]));
   const provenance = JSON.parse(fs.readFileSync(path.join(downloaded, 'Fork-build.json'), 'utf8'));
+  if (!/^[1-9]\d*$/.test(String(provenance.runId || ''))) throw new Error('Build provenance has an invalid run ID');
+  for (const [option, value] of Object.entries({ expectedRunId: provenance.runId,
+    expectedRunAttempt: provenance.runAttempt, expectedControllerSha: provenance.controller })) {
+    if (options[option] !== undefined && options[option] !== String(value)) {
+      throw new Error(`Build provenance does not match ${option}`);
+    }
+  }
   const ci = api(`actions/runs/${provenance.runId}`);
   validateProvenance(provenance, ci, source, version);
   const controllerConfig = JSON.parse(commandRun('git', ['show', `${provenance.controller}:src-tauri/tauri.conf.json`]));
@@ -261,7 +286,7 @@ async function finalizeFork(options, dependencies = {}) {
   // Verify the local updater key before any Apple submission.
   const probe = path.join(attempt, 'updater-key-check.txt');
   fs.writeFileSync(probe, `${tag}\n${source}\n`);
-  signUpdater(probe, path.resolve(updaterKey), publicKey, attempt, commandRun);
+  signUpdater(probe, path.resolve(updaterKey), publicKey, attempt, commandRun, tauriCli);
   for (const { name, file } of filesIn(downloaded)) fs.copyFileSync(file, path.join(assets, name));
 
   const signMac = dependencies.signMac || require('./macos-sign-local.cjs').signLocalDmg;
@@ -279,7 +304,7 @@ async function finalizeFork(options, dependencies = {}) {
     if (signed.archive) {
       const archive = path.join(assets, path.basename(signed.archive));
       fs.copyFileSync(signed.archive, archive);
-      signUpdater(archive, path.resolve(updaterKey), publicKey, attempt, commandRun);
+      signUpdater(archive, path.resolve(updaterKey), publicKey, attempt, commandRun, tauriCli);
     }
     receipts.push(signed.receipt);
   }
@@ -295,19 +320,21 @@ async function finalizeFork(options, dependencies = {}) {
     '--output', path.join(assets, 'latest.json')]);
   for (const { file } of matchUpdaterFiles(assets)) verifyUpdater(file, publicKey, attempt, commandRun);
   writeChecksums(assets);
-  signUpdater(path.join(assets, 'SHA256SUMS.txt'), path.resolve(updaterKey), publicKey, attempt, commandRun);
+  signUpdater(path.join(assets, 'SHA256SUMS.txt'), path.resolve(updaterKey), publicKey, attempt, commandRun, tauriCli);
   console.log(`All local signing and notarization checks passed: ${assets}`);
-  if (!options.publish) return { assets, notes, published: false };
+  if (!options.publish && !options.uploadDraft) return { assets, notes, published: false };
 
   assertSource(source, api);
   assertTag(tag, source, api);
   assertNewerRelease(version, api('releases/latest'));
   validateDraft(api(releaseEndpoint), tag, source, release.id);
   const changed = filesIn(assets).filter(({ name, file }) => original.get(name) !== sha256(file));
-  await (dependencies.uploadReleaseAssets || uploadReleaseAssets)(tag, changed.map(({ file }) => file), {
-    run: args => spawnSync('gh', args, { encoding: 'utf8', timeout: 10 * 60_000,
-      maxBuffer: 1024 * 1024, env: { ...process.env, GH_REPO: REPO } }),
-  });
+  if (changed.length) {
+    await (dependencies.uploadReleaseAssets || uploadReleaseAssets)(tag, changed.map(({ file }) => file), {
+      run: args => spawnSync('gh', args, { encoding: 'utf8', timeout: 10 * 60_000,
+        maxBuffer: 1024 * 1024, env: { ...process.env, GH_REPO: REPO } }),
+    });
+  }
   const uploaded = api(releaseEndpoint);
   validateDraft(uploaded, tag, source, release.id);
   const expected = filesIn(assets);
@@ -338,6 +365,17 @@ async function finalizeFork(options, dependencies = {}) {
   if (JSON.stringify(assetSnapshot(finalDraft)) !== JSON.stringify(assetSnapshot(uploaded))) {
     throw new Error('Draft assets changed after upload verification');
   }
+  if (options.uploadDraft) {
+    const updatedDraft = JSON.parse(commandRun('gh', ['api', '--method', 'PATCH', `repos/${REPO}/${releaseEndpoint}`,
+      '-F', `body=@${notes}`]));
+    validateDraft(updatedDraft, tag, source, release.id);
+    if (updatedDraft.body !== fs.readFileSync(notes, 'utf8')
+        || JSON.stringify(assetSnapshot(updatedDraft)) !== JSON.stringify(assetSnapshot(uploaded))) {
+      throw new Error('Draft changed while updating the verified release notes');
+    }
+    console.log(`Verified signed assets in draft https://github.com/${REPO}/releases/tag/${tag}`);
+    return { assets, notes, published: false, uploaded: true };
+  }
   commandRun('gh', ['api', '--method', 'PATCH', `repos/${REPO}/${releaseEndpoint}`,
     '-F', `body=@${notes}`, '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true']);
   console.log(`Published https://github.com/${REPO}/releases/tag/${tag}`);
@@ -349,13 +387,16 @@ async function finalizeFork(options, dependencies = {}) {
 
 function parseArgs(argv) {
   const options = {};
-  const names = ['tag', 'source-sha', 'work-dir', 'identity', 'team', 'key-path', 'key-id', 'issuer', 'updater-key', 'notes-file'];
+  const names = ['tag', 'source-sha', 'work-dir', 'identity', 'team', 'key-path', 'key-id', 'issuer', 'updater-key', 'notes-file',
+    'expected-run-id', 'expected-run-attempt', 'expected-controller-sha', 'tauri-cli'];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--publish') { options.publish = true; continue; }
+    if (argv[i] === '--upload-draft') { options.uploadDraft = true; continue; }
     const name = argv[i].replace(/^--/, '');
     if (!names.includes(name) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid argument: ${argv[i]}`);
     options[name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = argv[++i];
   }
+  validateRequestedOptions(options);
   return options;
 }
 

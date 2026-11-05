@@ -111,10 +111,10 @@ test('publication is opt-in and incomplete or unknown options fail', () => {
   assert.throws(() => parseArgs(['--password', 'secret']));
 });
 
-test('GitHub never publishes the draft before local Apple verification', () => {
+test('the fork publisher leaves Apple signing to a separate task and keeps the release as a draft', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/fork-publish.yml'), 'utf8');
   assert.match(workflow, /Fork-build\.json/);
-  assert.match(workflow, /Await local Apple signing and notarization/);
+  assert.match(workflow, /Await GitHub Apple signing and notarization/);
   assert.doesNotMatch(workflow, /--draft=false|secrets\.APPLE_|secrets: inherit/);
 });
 
