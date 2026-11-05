@@ -199,7 +199,7 @@ pub async fn step<B: Backend>(
         state.next_check_at = None;
         return Ok(());
     }
-    let result = step_with_trigger(dir, config, state, backend, false).await;
+    let result = step_with_trigger(dir, config, state, backend, false, None).await;
     finish_attempt(state);
     result
 }
@@ -390,8 +390,58 @@ pub async fn switch_next<B: Backend>(
     state: &mut State,
     backend: &B,
 ) -> Result<(), String> {
+    switch_manual(dir, config, state, backend, None).await
+}
+
+/// Explicit, one-shot consent to try this member before its remembered reset.
+/// The target is pinned: failure must never force a different member instead.
+pub fn check_force_confirmation(
+    state: &State,
+    target: &str,
+    confirmation: &ForceSwitchConfirmation,
+    now: i64,
+) -> Result<(), String> {
+    if target.trim().is_empty()
+        || state.holder_account_id.as_deref() != Some(confirmation.holder_account_id.as_str())
+        || confirmation.holder_account_id == target
+        || state.revision != confirmation.revision
+        || state.exhausted_until.get(target) != Some(&confirmation.reset_at)
+        || confirmation.reset_at <= now
+    {
+        return Err("强制切换的来源成员、配置或额度窗口已变化，请刷新状态后重新确认".into());
+    }
+    Ok(())
+}
+
+pub async fn switch_next_forced<B: Backend>(
+    dir: &Path,
+    config: &Config,
+    state: &mut State,
+    backend: &B,
+    target: &str,
+    confirmation: &ForceSwitchConfirmation,
+) -> Result<(), String> {
+    check_force_confirmation(state, target, confirmation, backend.now())?;
+    switch_manual(dir, config, state, backend, Some(target)).await
+}
+
+async fn switch_manual<B: Backend>(
+    dir: &Path,
+    config: &Config,
+    state: &mut State,
+    backend: &B,
+    forced_target: Option<&str>,
+) -> Result<(), String> {
     check_manual_next(dir, config, state, backend.now())?;
-    let result = step_with_trigger(dir, config, state, backend, true).await;
+    if let Some(target) = forced_target {
+        if target.trim().is_empty()
+            || state.holder_account_id.as_deref() == Some(target)
+            || !state.exhausted_until.get(target).is_some_and(|at| *at > backend.now())
+        {
+            return Err("强制切换目标或已知重置时间已变化，请刷新状态后重新确认".into());
+        }
+    }
+    let result = step_with_trigger(dir, config, state, backend, true, forced_target).await;
     finish_attempt(state);
     if let Err(error) = &result {
         state.attention(error.clone());
@@ -405,6 +455,7 @@ async fn step_with_trigger<B: Backend>(
     state: &mut State,
     backend: &B,
     manual: bool,
+    forced_target: Option<&str>,
 ) -> Result<(), String> {
     if !manual
         && !state.pending()
@@ -559,7 +610,12 @@ async fn step_with_trigger<B: Backend>(
     let mut target = None;
     let mut excluded = Vec::new();
     let ids = backend.candidates().await?;
-    let order = if manual || config.use_api_key_pool {
+    let order = if let Some(target) = forced_target {
+        if !ids.iter().any(|id| id == target) || target == holder {
+            return Err("强制切换目标已不在有效候选池中，请刷新状态后重新确认".into());
+        }
+        vec![target.to_owned()]
+    } else if manual || config.use_api_key_pool {
         circular_candidates(&ids, &holder)?
     } else {
         ids
@@ -576,10 +632,14 @@ async fn step_with_trigger<B: Backend>(
             excluded.push(format!("{id}: 当前席位或成员状态不满足条件"));
             continue;
         }
-        if let Some(at) = state.exhausted_until.get(id) {
-            if *at > backend.now() {
-                excluded.push(format!("{id}: 已知额度窗口尚未重置"));
-                continue;
+        let force_unreset = forced_target == Some(id.as_str())
+            && state.exhausted_until.get(id).is_some_and(|at| *at > backend.now());
+        if !force_unreset {
+            if let Some(at) = state.exhausted_until.get(id) {
+                if *at > backend.now() {
+                    excluded.push(format!("{id}: 已知额度窗口尚未重置"));
+                    continue;
+                }
             }
         }
         // Check valid authorization now. A standard seat's current zero balance
@@ -591,7 +651,10 @@ async fn step_with_trigger<B: Backend>(
                 continue;
             }
         };
-        if state.exhausted_until.contains_key(id) && quota.0 != QuotaEvidence::Available {
+        if !force_unreset
+            && state.exhausted_until.contains_key(id)
+            && quota.0 != QuotaEvidence::Available
+        {
             excluded.push(format!("{id}: 尚未确认额度恢复"));
             continue;
         }
@@ -783,6 +846,9 @@ async fn verify_target<B: Backend>(
         return Ok(());
     }
     state.operation.as_mut().ok_or("验证操作缺失")?.verified_at = Some(backend.now());
+    // Only successful post-swap quota and business verification supersedes this
+    // member's historical cooldown. Failed/paused attempts retain the evidence.
+    state.exhausted_until.remove(&op.target_account_id);
     state.holder_account_id = Some(op.target_account_id);
     state.holder_user_id = Some(op.target_user_id);
     state.validated_at = Some(backend.now());

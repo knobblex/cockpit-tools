@@ -251,6 +251,14 @@ pub struct Operation {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ForceSwitchConfirmation {
+    pub holder_account_id: String,
+    pub revision: u64,
+    pub reset_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct State {
     pub version: u32,
     pub revision: u64,

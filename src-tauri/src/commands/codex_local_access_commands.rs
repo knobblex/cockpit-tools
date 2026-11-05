@@ -22,9 +22,13 @@ pub async fn codex_premium_seat_configure(config: crate::modules::codex_seat_rot
 }
 
 #[tauri::command]
-pub async fn codex_premium_seat_control(action: String)
+pub async fn codex_premium_seat_control(
+    action: String,
+    target_account_id: Option<String>,
+    confirmation: Option<crate::modules::codex_seat_rotation::ForceSwitchConfirmation>,
+)
     -> Result<crate::modules::codex_seat_rotation::State, String> {
-    codex_local_access::control_premium_seat_rotation(&action).await
+    codex_local_access::control_premium_seat_rotation(&action, target_account_id.as_deref(), confirmation.as_ref()).await
 }
 
 #[tauri::command]

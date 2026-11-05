@@ -690,20 +690,40 @@ pub async fn configure_premium_seat_rotation(config: seat::Config) -> Result<sea
     Ok(state)
 }
 
-pub async fn control_premium_seat_rotation(action: &str) -> Result<seat::State, String> {
+pub async fn control_premium_seat_rotation(
+    action: &str,
+    target_account_id: Option<&str>,
+    confirmation: Option<&seat::ForceSwitchConfirmation>,
+) -> Result<seat::State, String> {
+    let forced_request = if action == "force_next" {
+        Some((target_account_id.filter(|target| !target.trim().is_empty())
+            .ok_or("强制切换需要明确指定目标成员")?,
+            confirmation.ok_or("强制切换需要确认来源成员、配置与额度窗口")?))
+    } else {
+        if target_account_id.is_some() || confirmation.is_some() {
+            return Err("仅强制切换可以指定目标成员与确认状态".into());
+        }
+        None
+    };
     let dir = seat_dir()?;
-    if action == "next" {
+    if matches!(action, "next" | "force_next") {
         let _lock = seat::coordinator_lock(&dir)?;
         let mut state = seat::load(&dir)?;
         let config = state.config.clone().ok_or("请先保存席位调换配置")?;
         seat::worker::check_manual_next(&dir, &config, &state, seat_now())?;
+        if let Some((target, confirmation)) = forced_request {
+            seat::worker::check_force_confirmation(&state, target, confirmation, seat_now())?;
+        }
         seat_collection(&config).await?;
         let backend = PremiumSeatBackend {
             config: &config,
             api: tokio::sync::Mutex::new(None),
             refresh_admin: true,
         };
-        let result = seat::worker::switch_next(&dir, &config, &mut state, &backend).await;
+        let result = match forced_request {
+            Some((target, confirmation)) => seat::worker::switch_next_forced(&dir, &config, &mut state, &backend, target, confirmation).await,
+            None => seat::worker::switch_next(&dir, &config, &mut state, &backend).await,
+        };
         if seat_pause_path(&dir).exists() {
             state.paused = true;
         }

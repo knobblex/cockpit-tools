@@ -28,6 +28,7 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const [forceTarget, setForceTarget] = useState<{ id: string; resetAt: number; holderId: string; revision: number } | null>(null);
   const formId = useId();
   const pending = useRef(false);
   const dirty = useRef(false);
@@ -78,6 +79,14 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
         && !collection?.pausedAccountIds?.includes(a.id) && !collection?.officialAccountBindings?.[a.id]));
   };
   const candidates = poolMembers(draft);
+  const savedMembers = state?.config ? poolMembers(state.config)
+    .filter((account) => state.config!.useApiKeyPool || state.config!.memberAccountIds.includes(account.id)) : [];
+  const quotaWindows = savedMembers.flatMap((account) => {
+    const resetAt = state?.exhaustedUntil[account.id];
+    return resetAt && Number.isFinite(resetAt) && resetAt > 0 ? [{ account, resetAt }] : [];
+  });
+  const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const resetTime = (at: number) => new Date(at * 1000).toLocaleString();
   const eligibilityReason = (config: PremiumSeatConfig) => {
     if (!teamAccounts.some((a) => a.id === config.adminAccountId && a.account_id === config.workspaceId)) {
       return "仅团队账号可启用自动调换，请选择目标团队工作区的 OAuth 管理员授权。";
@@ -94,11 +103,11 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
   const unresolved = Boolean(state?.operation && !state.operation.verifiedAt && !state.operation.resolvedWithoutSwap);
   const edit = (next: Partial<PremiumSeatConfig>) => {
     if (pending.current || !loaded || unresolved) return;
-    dirty.current = true; setDraft((old) => ({ ...old, ...next })); setNotice("");
+    dirty.current = true; setDraft((old) => ({ ...old, ...next })); setNotice(""); setForceTarget(null);
   };
   const run = async (work: () => Promise<PremiumSeatState>, saved = false) => {
     if (pending.current) return;
-    pending.current = true; setBusy(true); setError(""); setNotice("");
+    pending.current = true; setBusy(true); setError(""); setNotice(""); setForceTarget(null);
     try {
       const next = await work();
       if (saved) { dirty.current = false; setDraft(poolDraft(next.config)); }
@@ -120,6 +129,11 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
     : savedEligibilityReason || (state?.paused ? "请先重新核对并恢复" : state?.phase !== "ready" ? "等待当前高级成员验证通过" : "");
   const pauseDisabled = busy || !loaded || (!enabled && !unresolved) || Boolean(state?.paused);
   const resumeDisabled = busy || !loaded || !state?.paused || (!unresolved && (!enabled || Boolean(savedEligibilityReason)));
+  const forceDisabledReason = () => nextDisabledReason || (!forceTarget || !state?.holderAccountId
+    || forceTarget.holderId !== state.holderAccountId || forceTarget.revision !== state.revision
+    || forceTarget.id === state.holderAccountId || !savedMembers.some((account) => account.id === forceTarget.id)
+    || state.exhaustedUntil[forceTarget.id] !== forceTarget.resetAt || forceTarget.resetAt * 1000 <= Date.now()
+    ? "成员或额度窗口已变化，请取消后重新核对" : "");
   // Loading saved state still runs above so removing the last team cannot hide recovery.
   if (!teamAccounts.length && !state?.config && !unresolved && !error && !loadError) return null;
   return <section className="codex-api-service-panel premium-seat-control" aria-busy={busy || loadStatus === "loading"}>
@@ -145,6 +159,33 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
       <div><dt><ShieldCheck size={13} />关联账号池</dt><dd>{savedKey?.label ?? "尚未配置"}</dd></div>
       <div><dt><Clock3 size={13} />{state?.validatedAt && !unresolved ? "下次额度检查" : "下次核对"}</dt><dd>{state?.nextCheckAt ? new Date(state.nextCheckAt * 1000).toLocaleString() : "—"}</dd></div>
     </dl>
+    {quotaWindows.length > 0 && <div className="premium-seat-quota-windows">
+      <div className="premium-seat-section-heading"><h3><Clock3 size={14} />已知额度重置时间</h3><span className="premium-seat-hint">本地时间 · {localTimeZone}</span></div>
+      <p className="premium-seat-hint">历史耗尽记录；时间到达不代表额度已恢复，普通切换仍需实时确认。</p>
+      <ul className="premium-seat-quota-list">{quotaWindows.map(({ account, resetAt }) => {
+        const waiting = resetAt * 1000 > Date.now();
+        const holder = state?.holderAccountId === account.id;
+        return <li key={account.id}>
+          <div className="premium-seat-quota-member"><strong>{account.email}</strong>
+            <span><time dateTime={new Date(resetAt * 1000).toISOString()}>{resetTime(resetAt)}</time> · {waiting ? "尚未到重置时间" : "已到时间，待实时确认"}{holder ? " · 当前持席" : ""}</span></div>
+          {waiting && !holder && <button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(nextDisabledReason) || !state?.holderAccountId}
+            title={nextDisabledReason || "仅为此成员跳过历史额度窗口限制，确认后尝试调换"}
+            onClick={() => { if (!nextDisabledReason && !pending.current && state?.holderAccountId && resetAt * 1000 > Date.now()) {
+              setForceTarget({ id: account.id, resetAt, holderId: state.holderAccountId, revision: state.revision });
+            } }}><SkipForward size={14} />强制切换</button>}
+        </li>;
+      })}</ul>
+    </div>}
+    {forceTarget && <div className="premium-seat-force-confirm" role="group" aria-label="确认强制切换">
+      <h3><CircleAlert size={14} />确认强制切换</h3>
+      <p>将高级席位从 {display(forceTarget.holderId)} 调换给 {display(forceTarget.id)}，仅本次跳过该成员记录至 {resetTime(forceTarget.resetAt)}（{localTimeZone}）的额度窗口限制。</p>
+      <p>这会改变两位成员在工作区及其他客户端的权益，不保证额度恢复。授权、席位和安全间隔检查仍生效；调换后若额度或定向探测验证失败，将暂停处理，不会发布新成员路由。</p>
+      {forceDisabledReason() && <p role="status">{forceDisabledReason()}</p>}
+      <div className="premium-seat-actions"><button type="button" className="btn btn-secondary btn-sm" onClick={() => setForceTarget(null)}>取消</button>
+        <button type="button" className="btn btn-primary btn-sm" disabled={Boolean(forceDisabledReason())}
+          onClick={() => { if (!forceDisabledReason()) void run(() => controlPremiumSeat("force_next", forceTarget.id,
+            { holderAccountId: forceTarget.holderId, revision: forceTarget.revision, resetAt: forceTarget.resetAt })); }}>确认强制切换</button></div>
+    </div>}
     {!native && <div className="premium-seat-callout" role="status"><CircleAlert size={14} /><span>启用原生 Rust API 网关后，可核对并启用自动调换。</span></div>}
     {state?.config && savedEligibilityReason && <div className="premium-seat-callout" role="status"><CircleAlert size={14} /><span>{savedEligibilityReason}已有配置和操作记录仍保留，可暂停或核对；未决操作结束后可关闭。</span></div>}
     <div id={formId} hidden={!expanded} className="premium-seat-configuration">

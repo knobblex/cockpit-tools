@@ -43,4 +43,11 @@ export interface PremiumSeatState {
 export const getPremiumSeat = () => invoke<PremiumSeatState>("codex_premium_seat_get");
 export const checkPremiumSeat = (config: PremiumSeatConfig) => invoke<PremiumSeatState>("codex_premium_seat_check", { config });
 export const configurePremiumSeat = (config: PremiumSeatConfig) => invoke<PremiumSeatState>("codex_premium_seat_configure", { config });
-export const controlPremiumSeat = (action: "pause" | "resume" | "resolve_unapplied" | "next") => invoke<PremiumSeatState>("codex_premium_seat_control", { action });
+export interface PremiumSeatForceConfirmation {
+  holderAccountId: string;
+  revision: number;
+  resetAt: number;
+}
+export const controlPremiumSeat = (action: "pause" | "resume" | "resolve_unapplied" | "next" | "force_next", targetAccountId?: string,
+  confirmation?: PremiumSeatForceConfirmation) =>
+  invoke<PremiumSeatState>("codex_premium_seat_control", { action, targetAccountId, confirmation });

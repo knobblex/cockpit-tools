@@ -197,6 +197,7 @@ struct Mock {
     temporary_quota_error: AtomicBool,
     source_available: AtomicBool,
     target_quota_error: AtomicBool,
+    target_trial: AtomicBool,
     probe_error: AtomicBool,
     candidate_error: AtomicBool,
     pool: Mutex<Vec<String>>,
@@ -235,6 +236,7 @@ impl Mock {
             temporary_quota_error: AtomicBool::new(false),
             source_available: AtomicBool::new(false),
             target_quota_error: AtomicBool::new(false),
+            target_trial: AtomicBool::new(false),
             probe_error: AtomicBool::new(false),
             candidate_error: AtomicBool::new(false),
             pool: Mutex::new(vec!["a".into(), "b".into()]),
@@ -331,6 +333,7 @@ impl worker::Backend for Mock {
             remote_counts.insert("prolite".into(), 2);
         }
         let mut remote_members = members(false);
+        remote_members[1].is_trial = self.target_trial.load(Ordering::SeqCst);
         if include_third {
             remote_members.push(Member {
                 id: "uc".into(),
@@ -450,6 +453,25 @@ fn ready_state() -> State {
         validated_at: Some(1000),
         ..state()
     }
+}
+
+fn force_confirmation(state: &State, target: &str) -> ForceSwitchConfirmation {
+    ForceSwitchConfirmation {
+        holder_account_id: state.holder_account_id.clone().unwrap_or_default(),
+        revision: state.revision,
+        reset_at: state.exhausted_until.get(target).copied().unwrap_or_default(),
+    }
+}
+
+async fn confirmed_force_next(
+    dir: &Path,
+    config: &Config,
+    state: &mut State,
+    mock: &Mock,
+    target: &str,
+) -> Result<(), String> {
+    let confirmation = force_confirmation(state, target);
+    worker::switch_next_forced(dir, config, state, mock, target, &confirmation).await
 }
 
 #[test]
@@ -700,6 +722,200 @@ async fn pending_recovery_rejects_a_second_premium_member_added_to_the_pool() {
     assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
     assert!(mock.probes.lock().unwrap().is_empty());
     assert!(!state.allows(Some("key"), "b", false, 1000));
+}
+
+#[tokio::test]
+async fn stale_force_confirmation_is_rejected_before_any_remote_access_or_state_change() {
+    for change in ["holder", "missing_holder", "revision", "reset", "missing_reset", "expired"] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        let mut state = ready_state();
+        state.exhausted_until.insert("b".into(), 9000);
+        let confirmation = force_confirmation(&state, "b");
+        match change {
+            "holder" => state.holder_account_id = Some("c".into()),
+            "missing_holder" => state.holder_account_id = None,
+            "revision" => state.revision += 1,
+            "reset" => { state.exhausted_until.insert("b".into(), 10000); }
+            "missing_reset" => { state.exhausted_until.remove("b"); }
+            "expired" => mock.now.store(9000, Ordering::SeqCst),
+            _ => unreachable!(),
+        }
+        let before = serde_json::to_value(&state).unwrap();
+        let config = state.config.clone().unwrap();
+        let result = worker::switch_next_forced(dir.path(), &config, &mut state, &mock, "b", &confirmation).await;
+        assert!(result.unwrap_err().contains("重新确认"), "{change}");
+        assert_eq!(mock.posts.load(Ordering::SeqCst), 0, "{change}");
+        assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 0, "{change}");
+        assert_eq!(mock.quota_reads.load(Ordering::SeqCst), 0, "{change}");
+        assert_eq!(mock.scope_checks.load(Ordering::SeqCst), 0, "{change}");
+        assert!(mock.probes.lock().unwrap().is_empty());
+        assert_eq!(serde_json::to_value(&state).unwrap(), before, "{change}");
+    }
+}
+
+#[test]
+fn force_confirmation_wire_requires_the_exact_camel_case_snapshot() {
+    let value = serde_json::json!({ "holderAccountId": "a", "revision": 0, "resetAt": 9000 });
+    let confirmation: ForceSwitchConfirmation = serde_json::from_value(value.clone()).unwrap();
+    let mut state = ready_state();
+    state.exhausted_until.insert("b".into(), 9000);
+    worker::check_force_confirmation(&state, "b", &confirmation, 1000).unwrap();
+    assert_eq!(serde_json::to_value(confirmation).unwrap(), value);
+    for field in ["holderAccountId", "revision", "resetAt"] {
+        let mut missing = value.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<ForceSwitchConfirmation>(missing).is_err());
+    }
+    let mut extra = value;
+    extra["allowAnyHolder"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<ForceSwitchConfirmation>(extra).is_err());
+}
+
+#[tokio::test]
+async fn forced_next_pins_one_unreset_member_and_only_clears_verified_target_cooldown() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    mock.source_available.store(true, Ordering::SeqCst);
+    *mock.pool.lock().unwrap() = vec!["a".into(), "c".into(), "b".into()];
+    let mut state = ready_state();
+    state.exhausted_until.insert("b".into(), 9000);
+    state.exhausted_until.insert("c".into(), 9500);
+    let config = state.config.clone().unwrap();
+    confirmed_force_next(dir.path(), &config, &mut state, &mock, "b")
+        .await.unwrap();
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
+    assert_eq!(state.holder_account_id.as_deref(), Some("b"));
+    assert_eq!(*mock.probes.lock().unwrap(), ["b"]);
+    assert!(!state.exhausted_until.contains_key("b"));
+    assert_eq!(state.exhausted_until.get("c"), Some(&9500));
+    assert!(state.allows(Some("key"), "b", false, 1000));
+}
+
+#[tokio::test]
+async fn forced_next_rejects_stale_or_missing_cooldown_and_never_targets_the_holder() {
+    for (target, reset) in [("b", None), ("b", Some(1000)), ("a", Some(9000)), ("", Some(9000))] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        let mut state = ready_state();
+        if let Some(reset) = reset { state.exhausted_until.insert(target.into(), reset); }
+        let config = state.config.clone().unwrap();
+        assert!(confirmed_force_next(dir.path(), &config, &mut state, &mock, target)
+            .await.is_err());
+        assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+        assert_eq!(mock.snapshot_reads.load(Ordering::SeqCst), 0);
+        assert!(state.allows(Some("key"), "a", false, 1000));
+    }
+}
+
+#[tokio::test]
+async fn forced_next_does_not_fall_back_after_target_query_failure_or_ineligibility() {
+    for condition in ["quota", "trial", "outside_pool", "revoked_before_submit"] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        mock.source_available.store(true, Ordering::SeqCst);
+        mock.pool.lock().unwrap().push("c".into());
+        match condition {
+            "quota" => mock.target_quota_error.store(true, Ordering::SeqCst),
+            "trial" => mock.target_trial.store(true, Ordering::SeqCst),
+            "outside_pool" => mock.pool.lock().unwrap().retain(|id| id != "b"),
+            "revoked_before_submit" => mock.remove_target_on_final_check.store(true, Ordering::SeqCst),
+            _ => unreachable!(),
+        }
+        let mut state = ready_state();
+        state.exhausted_until.insert("b".into(), 9000);
+        let config = state.config.clone().unwrap();
+        let _ = confirmed_force_next(dir.path(), &config, &mut state, &mock, "b").await;
+        assert_eq!(mock.posts.load(Ordering::SeqCst), 0, "{condition}");
+        assert_eq!(state.exhausted_until.get("b"), Some(&9000));
+        assert!(mock.probes.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn forced_next_requires_post_swap_quota_and_probe_before_publication() {
+    for condition in ["quota", "probe"] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        mock.source_available.store(true, Ordering::SeqCst);
+        mock.target_available.store(condition != "quota", Ordering::SeqCst);
+        mock.probe_error.store(condition == "probe", Ordering::SeqCst);
+        let mut state = ready_state();
+        state.exhausted_until.insert("b".into(), 9000);
+        let config = state.config.clone().unwrap();
+        let _ = confirmed_force_next(dir.path(), &config, &mut state, &mock, "b").await;
+        assert_eq!(mock.posts.load(Ordering::SeqCst), 1, "{condition}");
+        assert!(state.paused);
+        assert!(state.pending());
+        assert!(!state.allows(Some("key"), "b", false, 1000));
+        assert_eq!(state.exhausted_until.get("b"), Some(&9000));
+        assert!(confirmed_force_next(dir.path(), &config, &mut state, &mock, "b").await.is_err());
+        assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
+async fn ordinary_manual_and_automatic_switches_keep_the_unreset_gate() {
+    for manual in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        mock.source_available.store(manual, Ordering::SeqCst);
+        let mut state = ready_state();
+        state.exhausted_until.insert("b".into(), 9000);
+        let config = state.config.clone().unwrap();
+        if manual {
+            worker::switch_next(dir.path(), &config, &mut state, &mock).await.unwrap();
+        } else {
+            run(&mock, &mut state).await.unwrap();
+        }
+        assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+        assert_eq!(state.exhausted_until.get("b"), Some(&9000));
+        assert!(state.message.as_deref().unwrap().contains("已知额度窗口尚未重置"));
+    }
+}
+
+#[tokio::test]
+async fn forced_next_preserves_manual_prerequisites_and_minimum_interval() {
+    for condition in ["disabled", "paused", "unverified", "pause_file", "minimum_interval"] {
+        let dir = tempfile::tempdir().unwrap();
+        let mock = Mock::new(dir.path());
+        let mut state = ready_state();
+        if condition == "minimum_interval" {
+            mock.source_available.store(true, Ordering::SeqCst);
+            let config = state.config.clone().unwrap();
+            worker::switch_next(dir.path(), &config, &mut state, &mock).await.unwrap();
+            state.exhausted_until.insert("a".into(), 9000);
+        } else {
+            state.exhausted_until.insert("b".into(), 9000);
+            match condition {
+                "disabled" => state.config.as_mut().unwrap().enabled = false,
+                "paused" => state.paused = true,
+                "unverified" => state.phase = Phase::Idle,
+                "pause_file" => std::fs::write(worker::pause_path(dir.path()), "paused").unwrap(),
+                _ => unreachable!(),
+            }
+        }
+        let posts = mock.posts.load(Ordering::SeqCst);
+        let config = state.config.clone().unwrap();
+        let target = if condition == "minimum_interval" { "a" } else { "b" };
+        assert!(confirmed_force_next(dir.path(), &config, &mut state, &mock, target).await.is_err(), "{condition}");
+        assert_eq!(mock.posts.load(Ordering::SeqCst), posts);
+    }
+}
+
+#[tokio::test]
+async fn forced_next_cannot_bypass_rapid_exhaustion_protection() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    let mut state = state();
+    run(&mock, &mut state).await.unwrap();
+    mock.now.store(1000 + MIN_SWAP_INTERVAL_SECS, Ordering::SeqCst);
+    mock.target_available.store(false, Ordering::SeqCst);
+    let config = state.config.clone().unwrap();
+    confirmed_force_next(dir.path(), &config, &mut state, &mock, "a").await.unwrap();
+    assert!(state.paused);
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
+    assert!(state.message.as_deref().unwrap().contains("避免循环"));
 }
 
 #[tokio::test]

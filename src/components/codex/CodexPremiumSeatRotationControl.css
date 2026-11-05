@@ -31,6 +31,14 @@
 .premium-seat-overview > div { display: grid; align-content: start; gap: 7px; padding: 12px; border: 1px solid var(--codex-api-border-soft, var(--border)); border-radius: 10px; background: var(--codex-api-surface-soft, var(--bg-secondary)); }
 .premium-seat-overview dt { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; }
 .premium-seat-overview dd { margin: 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.premium-seat-quota-windows { display: grid; gap: 9px; margin-top: 14px; }
+.premium-seat-quota-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.premium-seat-quota-list li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px; padding: 10px 12px; border: 1px solid var(--codex-api-border-soft, var(--border)); border-radius: 9px; }
+.premium-seat-quota-member { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.premium-seat-quota-member strong { font-size: 11.5px; font-weight: 600; }
+.premium-seat-quota-member span { color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.premium-seat-force-confirm { display: grid; gap: 9px; margin-top: 12px; padding: 12px; border: 1px solid var(--warning, #d97706); border-radius: 10px; background: color-mix(in srgb, var(--warning, #d97706) 5%, transparent); }
+.premium-seat-force-confirm p { margin: 0; color: var(--text-secondary); font-size: 11.5px; line-height: 1.6; overflow-wrap: anywhere; }
 
 .premium-seat-configuration { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--codex-api-border-soft, var(--border)); }
 .premium-seat-configuration[hidden] { display: none; }

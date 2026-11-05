@@ -3,7 +3,7 @@ import test from 'node:test';
 import { deferred, loadHookModule, settlePromises } from '../../../tests/helpers/reactHookHarness';
 import type { CodexAccount } from '../../types/codex';
 import type { CodexLocalAccessCollection } from '../../types/codexLocalAccess';
-import type { PremiumSeatConfig, PremiumSeatState } from '../../services/codexPremiumSeatService';
+import type { PremiumSeatConfig, PremiumSeatForceConfirmation, PremiumSeatState } from '../../services/codexPremiumSeatService';
 import * as eligibility from '../../utils/codexPremiumSeatEligibility';
 
 function nodes(value: any): any[] {
@@ -46,7 +46,10 @@ function harness(initialAccounts = [account('admin'), account('member')], initia
   let nextTimeout = 0;
   let poll: (() => Promise<void>) | undefined;
   let pendingControl: ReturnType<typeof deferred<PremiumSeatState>> | undefined;
-  const calls = { get: 0, checked: [] as PremiumSeatConfig[], configured: [] as PremiumSeatConfig[], actions: [] as string[] };
+  let now = 1_800_000_000_000;
+  class ClockDate extends Date { static now() { return now; } }
+  const calls = { get: 0, checked: [] as PremiumSeatConfig[], configured: [] as PremiumSeatConfig[], actions: [] as string[],
+    targets: [] as (string | undefined)[], confirmations: [] as (PremiumSeatForceConfirmation | undefined)[] };
   const hook = loadHookModule(new URL('./CodexPremiumSeatRotationControl.tsx', import.meta.url), {
     '../SingleSelectDropdown': { SingleSelectDropdown: 'Dropdown' },
     '../../utils/codexPremiumSeatEligibility': eligibility,
@@ -56,14 +59,16 @@ function harness(initialAccounts = [account('admin'), account('member')], initia
       async configurePremiumSeat(value: PremiumSeatConfig) {
         calls.configured.push(value); remote = { ...remote, config: value }; return remote;
       },
-      async controlPremiumSeat(action: string) {
+      async controlPremiumSeat(action: string, targetAccountId?: string, confirmation?: PremiumSeatForceConfirmation) {
         calls.actions.push(action);
+        calls.targets.push(targetAccountId);
+        calls.confirmations.push(confirmation);
         if (pendingControl) return pendingControl.promise;
         if (action === 'pause') remote = { ...remote, paused: true };
         return remote;
       },
     },
-  }, { setInterval(callback: () => Promise<void>) { poll = callback; return 1; }, clearInterval() { poll = undefined; },
+  }, { Date: ClockDate, setInterval(callback: () => Promise<void>) { poll = callback; return 1; }, clearInterval() { poll = undefined; },
     setTimeout(callback: () => void) { const id = ++nextTimeout; timeouts.set(id, callback); return id; },
     clearTimeout(id: number) { timeouts.delete(id); } });
   hook.render(() => hook.exports.CodexPremiumSeatRotationControl({ accounts, collection: currentCollection }));
@@ -74,6 +79,7 @@ function harness(initialAccounts = [account('admin'), account('member')], initia
   return { hook, tree, button, dropdown, toggle, calls, visible: () => text(hook.flush()),
     setAccounts(next: CodexAccount[]) { accounts = next; }, setCollection(next: CodexLocalAccessCollection) { currentCollection = next; },
     setRemote(next: PremiumSeatState) { remote = next; }, failLoad() { loadFailure = true; },
+    advanceTime(milliseconds: number) { now += milliseconds; },
     recoverLoad() { loadFailure = false; pendingLoad = undefined; },
     delayLoad() { pendingLoad = deferred<PremiumSeatState>(); return pendingLoad; },
     get delayedLoad() { return pendingLoad; },
@@ -330,4 +336,124 @@ test('successful local reads do not erase manual operation failures', async () =
   assert.match(h.visible(), /Seat operation failed/);
   assert.deepEqual(h.calls.actions, ['next']);
   h.hook.unmount();
+});
+
+function readyWithCooldown(patch: Partial<PremiumSeatState> = {}) {
+  return state({ config: config({ enabled: true }), phase: 'ready', holderAccountId: 'admin',
+    validatedAt: 1_799_999_000, exhaustedUntil: { member: 1_800_003_600 }, ...patch });
+}
+
+test('saved-pool reset times stay visible outside collapsed configuration, with historical status and no holder override', async () => {
+  const h = harness(undefined, readyWithCooldown({ exhaustedUntil: { admin: 1_800_003_000, member: 1_799_999_000, removed: 1_800_004_000 } }));
+  await settlePromises();
+  assert.equal(h.button('配置').props['aria-expanded'], false);
+  const panel = h.tree().find((node) => node.props?.className === 'premium-seat-quota-windows');
+  assert.ok(panel);
+  assert.match(text(panel), /本地时间/);
+  assert.match(text(panel), /尚未到重置时间 · 当前持席/);
+  assert.match(text(panel), /已到时间，待实时确认/);
+  assert.doesNotMatch(text(panel), /removed/);
+  const times = nodes(panel).filter((node) => node.type === 'time');
+  assert.deepEqual(times.map((node) => node.props.dateTime), [1_800_003_000, 1_799_999_000].map((at) => new Date(at * 1000).toISOString()));
+  assert.equal(h.button('强制切换'), undefined);
+  assert.deepEqual(h.calls.actions, []);
+  h.hook.unmount();
+});
+
+test('force switching requires target-specific confirmation, cancellation makes no request, and clicks are deduplicated', async () => {
+  const initial = readyWithCooldown();
+  const h = harness(undefined, initial); await settlePromises();
+  h.button('强制切换').props.onClick();
+  assert.deepEqual(h.calls.actions, []);
+  const confirm = h.tree().find((node) => node.props?.['aria-label'] === '确认强制切换');
+  assert.match(text(confirm), /admin@example.com.*member@example.com/);
+  assert.match(text(confirm), /不保证额度恢复/);
+  assert.match(text(confirm), /验证失败.*暂停处理/);
+  h.button('取消').props.onClick();
+  assert.equal(h.button('确认强制切换'), undefined);
+  assert.deepEqual(h.calls.actions, []);
+  h.button('强制切换').props.onClick();
+  const waiting = h.delayControl();
+  const click = h.button('确认强制切换').props.onClick;
+  click(); click();
+  assert.deepEqual(h.calls.actions, ['force_next']);
+  assert.deepEqual(h.calls.targets, ['member']);
+  assert.equal(h.calls.confirmations.length, 1);
+  assert.equal(h.calls.confirmations[0]?.holderAccountId, 'admin');
+  assert.equal(h.calls.confirmations[0]?.revision, initial.revision);
+  assert.equal(h.calls.confirmations[0]?.resetAt, initial.exhaustedUntil.member);
+  assert.equal(h.button('确认强制切换'), undefined);
+  assert.equal(h.button('强制切换').props.disabled, true);
+  waiting.resolve(initial); await settlePromises();
+  h.hook.unmount();
+});
+
+test('confirmation cannot override updated holder, revision, quota evidence, paused state, or removed target', async () => {
+  const initial = readyWithCooldown();
+  const patches: Partial<PremiumSeatState>[] = [{ holderAccountId: 'member' }, { revision: 1 }, { exhaustedUntil: {} },
+    { exhaustedUntil: { member: 1_800_007_200 } }, { paused: true }];
+  for (const patch of patches) {
+    const h = harness(undefined, initial); await settlePromises();
+    h.button('强制切换').props.onClick();
+    h.setRemote({ ...initial, ...patch }); await h.poll();
+    assert.equal(h.button('确认强制切换').props.disabled, true);
+    h.button('确认强制切换').props.onClick();
+    assert.deepEqual(h.calls.actions, []);
+    h.hook.unmount();
+  }
+  const h = harness(undefined, initial); await settlePromises();
+  h.button('强制切换').props.onClick();
+  h.setCollection(collection({ accountIds: ['admin'] }));
+  assert.equal(h.button('确认强制切换').props.disabled, true);
+  h.button('确认强制切换').props.onClick();
+  assert.deepEqual(h.calls.actions, []);
+  h.hook.unmount();
+});
+
+test('time is checked again on confirmation even without a render or state refresh', async () => {
+  const h = harness(undefined, readyWithCooldown()); await settlePromises();
+  h.button('强制切换').props.onClick();
+  const confirm = h.button('确认强制切换').props.onClick;
+  h.advanceTime(3_600_000);
+  confirm();
+  assert.deepEqual(h.calls.actions, []);
+  assert.equal(h.button('确认强制切换').props.disabled, true);
+  assert.match(h.visible(), /已到时间，待实时确认/);
+  h.hook.unmount();
+});
+
+test('force controls retain ordinary manual safeguards and a failed state read blocks an open confirmation', async () => {
+  for (const patch of [{ paused: true }, { phase: 'needs_attention' as const }, { config: config() }]) {
+    const h = harness(undefined, readyWithCooldown(patch)); await settlePromises();
+    assert.equal(h.button('强制切换').props.disabled, true);
+    h.button('强制切换').props.onClick();
+    assert.equal(h.button('确认强制切换'), undefined);
+    assert.deepEqual(h.calls.actions, []);
+    h.hook.unmount();
+  }
+  const h = harness(undefined, readyWithCooldown()); await settlePromises();
+  h.button('强制切换').props.onClick();
+  h.failLoad(); await h.poll();
+  assert.equal(h.button('确认强制切换').props.disabled, true);
+  h.button('确认强制切换').props.onClick();
+  assert.deepEqual(h.calls.actions, []);
+  h.hook.unmount();
+});
+
+test('editing configuration dismisses confirmation and legacy candidate bounds exclude unrelated cooldowns', async () => {
+  const h = harness(undefined, readyWithCooldown()); await settlePromises();
+  h.button('强制切换').props.onClick();
+  h.tree().find((node) => node.type === 'input' && node.props.placeholder === '自动发现，无需填写').props.onChange({ target: { value: 'new-model' } });
+  assert.equal(h.button('确认强制切换'), undefined);
+  assert.equal(h.button('强制切换').props.disabled, true);
+  assert.deepEqual(h.calls.actions, []);
+  h.hook.unmount();
+  const legacy = harness([account('admin'), account('member'), account('third')],
+    readyWithCooldown({ config: config({ enabled: true, useApiKeyPool: false, memberAccountIds: ['admin', 'member'] }),
+      exhaustedUntil: { member: 1_800_003_600, third: 1_800_003_600 } }), collection({ accountIds: ['admin', 'member', 'third'] }));
+  await settlePromises();
+  const panel = legacy.tree().find((node) => node.props?.className === 'premium-seat-quota-windows');
+  assert.match(text(panel), /member@example.com/);
+  assert.doesNotMatch(text(panel), /third@example.com/);
+  legacy.hook.unmount();
 });
