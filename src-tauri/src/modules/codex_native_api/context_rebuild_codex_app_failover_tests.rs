@@ -89,6 +89,7 @@ async fn limited_fixture(delivery: LimitDelivery, b: Vec<Step>) -> Fixture {
         passthrough: AtomicBool::new(false),
         removed_a: AtomicBool::new(false),
         seat_rotated: AtomicBool::new(false),
+        capacity_recovery_checks: Mutex::new(None),
         local_quota_preparation_denied: Mutex::new(vec![]),
         local_quota_send_denied: Mutex::new(vec![]),
         local_quota_send_checks: Mutex::new(vec![]),
