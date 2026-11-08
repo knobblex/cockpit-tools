@@ -3,6 +3,7 @@
 #![recursion_limit = "256"]
 
 mod commands;
+mod local_tools;
 pub mod error;
 mod models;
 mod modules;
@@ -346,6 +347,7 @@ pub fn run() {
     }
 
     let app = tauri::Builder::default()
+        .plugin(local_tools::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -797,6 +799,7 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            local_tools::local_tools_antigravity,
             commands::codex_pelican::codex_pelican_start,
             commands::codex_pelican::codex_pelican_retry,
             commands::codex_pelican::codex_pelican_active,

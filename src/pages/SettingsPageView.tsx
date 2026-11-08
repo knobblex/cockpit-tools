@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AntigravityUpstreamTool } from '../local-tools/antigravity/AntigravityUpstreamTool';
 import { UnlockFireworksOverlay } from '../components/UnlockFireworksOverlay';
 import { SettingsAccountTransferSection } from '../components/SettingsAccountTransferSection';
 import { SettingsWebdavSyncSection } from '../components/SettingsWebdavSyncSection';
@@ -124,6 +125,7 @@ export function SettingsPageView(props: SettingsPageViewProps) {
         {/* === Network Tab === */}
         {activeTab === 'network' && (
           <>
+            <AntigravityUpstreamTool />
             <div className="group-title">Antigravity Cockpit API</div>
             <div className="settings-group">
               <div className="settings-row">

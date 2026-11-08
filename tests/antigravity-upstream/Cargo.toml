@@ -1,0 +1,37 @@
+[package]
+name = "cockpit-antigravity-upstream-tests"
+version = "0.0.0"
+edition = "2021"
+publish = false
+autolib = false
+
+[workspace]
+
+[dependencies]
+axum = "0.8"
+dirs = "5"
+fs2 = "0.4"
+futures-util = "0.3"
+libc = "0.2"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+serde_yaml = "0.9"
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+url = "2"
+
+[[test]]
+name = "upstream"
+path = "tests.rs"
+
+[[bin]]
+name = "fixture-backend"
+path = "fixture.rs"
+
+[profile.dev]
+debug = 0
+incremental = false

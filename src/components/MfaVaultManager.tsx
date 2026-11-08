@@ -1020,7 +1020,7 @@ export function MfaVaultManager() {
           </div>
           <p className="mfa-migration-summary">{t(qrExportScope === 'selected'
             ? 'mfaVault.migrationSelectedSummary' : 'mfaVault.migrationAllSummary', {
-            count: qrPages.reduce((sum, page) => sum + page.count, 0),
+            count: qrPages.reduce<number>((sum, page) => sum + page.count, 0),
           })}</p>
           <p className="mfa-migration-warning">{t('mfaVault.migrationWarning')}</p>
           <img className="mfa-migration-image" src={qrPages[qrPageIndex].dataUrl}

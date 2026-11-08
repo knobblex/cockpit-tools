@@ -1,0 +1,15 @@
+.antigravity-upstream-tool .settings-group { padding: 20px; }
+.antigravity-upstream-tool p { margin: 0 0 14px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.antigravity-upstream-tool fieldset { border: 0; padding: 0; margin: 16px 0; min-width: 0; }
+.antigravity-upstream-tool .upstream-field { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 12px; align-items: center; margin-bottom: 12px; font-size: 13px; }
+.antigravity-upstream-tool .upstream-field input { width: 100%; min-width: 0; }
+.antigravity-upstream-tool .upstream-status,
+.antigravity-upstream-tool .upstream-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+.antigravity-upstream-tool .upstream-port { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.antigravity-upstream-tool .upstream-port input { width: 110px; }
+.antigravity-upstream-tool .upstream-warning { color: var(--danger-color, #d65745); }
+.antigravity-upstream-tool .upstream-confirm { margin: 12px 0; padding: 12px; border: 1px solid var(--border-color, #888); border-radius: 8px; }
+.antigravity-upstream-tool .upstream-confirm button { margin-right: 8px; }
+@media (max-width: 1000px) {
+  .antigravity-upstream-tool .upstream-field { grid-template-columns: 1fr; gap: 6px; }
+}
