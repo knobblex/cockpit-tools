@@ -122,7 +122,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     handleCustomStatsRangeApply,
     handleDeleteApiKey,
     handleDeleteTimeoutPreset,
-    handleKillPort,
+    openPortRecovery,
     handleOpenAccountModelMappings,
     handleOpenAccountModelRules,
     handleOpenPricingModal,
@@ -508,11 +508,11 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                 {!keyRecoveryRequired && <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  onClick={() => void handleKillPort()}
+                  onClick={openPortRecovery}
                   disabled={portKilling || busy || activating}
                 >
                   <Wrench size={13} />
-                  {t("codex.localAccess.killPortAction", "清理端口")}
+                  {t("codex.localAccess.portRecoveryTitle")}
                 </button>}
               </div>
             )}
@@ -3937,7 +3937,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
           codexLocalAccessService.rotateCodexLocalAccessApiKey().then(setState)
         }
         onRestartSidecar={handleRestartSidecar}
-        onKillPort={handleKillPort}
+        onRequestPortRecovery={openPortRecovery}
         onToggleEnabled={() => handleToggleEnabled(true)}
         onRecoverAccounts={handleRecoverAccounts}
         healthActionBusy={busy}
