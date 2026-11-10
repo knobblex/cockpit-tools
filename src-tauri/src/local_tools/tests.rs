@@ -17,18 +17,33 @@ use tokio_util::sync::CancellationToken;
 
 const SENTENCE: &str = "You are Codex, an agent based on GPT-5.";
 const CORRECTED: &str = "You are Codex, a coding assistant powered by Gemini.";
+const CLAUDE_IDENTITY: &str = "You are Codex, a coding assistant powered by Claude.";
 
 #[test]
 fn legacy_model_names_resolve_without_changing_explicit_effort() {
-    for model in ["gemini-4-argon", "gemini-3.8-flash"] {
+    for model in [
+        "gemini-4-argon",
+        "gemini-3.8-flash",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "gpt-oss-120b",
+    ] {
         for suffix in ["low", "medium", "high", "xhigh"] {
             let mut request = json!({"model": format!("{model}-{suffix}"),
-                "input": "hello", "reasoning": {"effort": "low"}});
-            let result: Value = serde_json::from_slice(&relay::normalize_identity(Bytes::from(
-                request.to_string(),
-            )))
-            .unwrap();
+                "input": "hello", "reasoning": {"effort": "low"},
+                "messages": [{"role":"user", "content":SENTENCE}]});
+            if !model.starts_with("gemini-") {
+                request["instructions"] = json!(SENTENCE);
+                request["messages"][0]["role"] = json!("system");
+            }
+            let result: Value =
+                serde_json::from_slice(&relay::normalize_request(Bytes::from(request.to_string())))
+                    .unwrap();
             request["model"] = json!(model);
+            if model.starts_with("claude-") {
+                request["instructions"] = json!(CLAUDE_IDENTITY);
+                request["messages"][0]["content"] = json!(CLAUDE_IDENTITY);
+            }
             assert_eq!(result, request);
         }
     }
@@ -38,11 +53,11 @@ fn legacy_model_names_resolve_without_changing_explicit_effort() {
         "gemini-future-high",
         "gemini-测试",
         "gemini-🦀",
-        "claude-opus-5-5-high",
-        "gpt-oss-120b-medium",
+        "claude-future-high",
+        "gpt-oss-unknown-medium",
     ] {
         let request = Bytes::from(json!({"model": model, "input": "hello"}).to_string());
-        assert_eq!(relay::normalize_identity(request.clone()), request);
+        assert_eq!(relay::normalize_request(request.clone()), request);
     }
 }
 
@@ -54,10 +69,9 @@ fn identity_correction_is_scoped_and_preserves_tools_and_reasoning() {
         "input":[{"role":"developer", "content":[{"type":"input_text", "text":format!("{SENTENCE}\nKeep all permissions.")} ]},
         {"role":"user", "content":SENTENCE}, {"type":"function_call_output", "output":SENTENCE},
         {"type":"reasoning", "encrypted_content":"opaque"}]});
-    let result: Value = serde_json::from_slice(&relay::normalize_identity(Bytes::from(
-        original.to_string(),
-    )))
-    .unwrap();
+    let result: Value =
+        serde_json::from_slice(&relay::normalize_request(Bytes::from(original.to_string())))
+            .unwrap();
     assert_eq!(result["model"], "gemini-4-argon");
     assert_eq!(result["instructions"], CORRECTED);
     assert_eq!(
@@ -81,7 +95,7 @@ fn identity_handles_chat_and_versions_but_not_embedded_user_quotes() {
         let value =
             json!({"model":"GEMINI-test", "messages":[{"role":"system", "content":sentence}]});
         let result: Value =
-            serde_json::from_slice(&relay::normalize_identity(Bytes::from(value.to_string())))
+            serde_json::from_slice(&relay::normalize_request(Bytes::from(value.to_string())))
                 .unwrap();
         assert_eq!(result["messages"][0]["content"], CORRECTED);
     }
@@ -94,7 +108,33 @@ fn identity_handles_chat_and_versions_but_not_embedded_user_quotes() {
             .to_string()
             .into_bytes(),
     ] {
-        assert_eq!(relay::normalize_identity(Bytes::from(input.clone())), input);
+        assert_eq!(relay::normalize_request(Bytes::from(input.clone())), input);
+    }
+}
+
+#[test]
+fn claude_identity_correction_preserves_user_quotes_tools_and_reasoning() {
+    for model in ["claude-opus-5-5", "claude-sonnet-5-5"] {
+        let original = json!({"model":model, "instructions":SENTENCE,
+            "reasoning":{"effort":"medium"},
+            "tools":[{"type":"function","name":"test","description":SENTENCE}],
+            "input":[{"role":"developer","content":[{"type":"input_text","text":format!("{SENTENCE}\nKeep all permissions.")}]},
+                {"role":"user","content":SENTENCE},
+                {"type":"function_call_output","output":SENTENCE}]});
+        let result: Value =
+            serde_json::from_slice(&relay::normalize_request(Bytes::from(original.to_string())))
+                .unwrap();
+        assert_eq!(result["instructions"], CLAUDE_IDENTITY);
+        assert_eq!(
+            result["input"][0]["content"][0]["text"],
+            format!("{CLAUDE_IDENTITY}\nKeep all permissions.")
+        );
+        for field in ["model", "reasoning", "tools"] {
+            assert_eq!(result[field], original[field]);
+        }
+        for index in 1..3 {
+            assert_eq!(result["input"][index], original["input"][index]);
+        }
     }
 }
 
@@ -104,6 +144,15 @@ fn legacy_config_migrates_without_retaining_python_and_rejects_unknown_fields() 
     let config = Config::from_value(value.clone()).unwrap();
     assert!(config.auto_start);
     assert_eq!(config.model, "gemini-4-argon");
+    for (old, public) in [
+        ("claude-opus-5-5-high", "claude-opus-5-5"),
+        ("claude-sonnet-5-5-high", "claude-sonnet-5-5"),
+        ("gpt-oss-120b-medium", "gpt-oss-120b"),
+    ] {
+        let mut legacy = value.clone();
+        legacy["model"] = json!(old);
+        assert_eq!(Config::from_value(legacy).unwrap().model, public);
+    }
     let saved = serde_json::to_value(&config).unwrap();
     assert!(saved.get("python_path").is_none() && saved.get("script_path").is_none());
     for change in [
@@ -139,6 +188,18 @@ fn backend_config_disables_remote_access_credits_plugins_and_request_logs() {
     assert_eq!(aliases[0]["alias"], "gemini-4-argon");
     assert_eq!(aliases[1]["name"], "gemini-3.8-flash-high");
     assert_eq!(aliases[1]["alias"], "gemini-3.8-flash");
+    for (upstream, public) in [
+        ("claude-opus-5-5-high", "claude-opus-5-5"),
+        ("claude-sonnet-5-5-high", "claude-sonnet-5-5"),
+        ("gpt-oss-120b-medium", "gpt-oss-120b"),
+    ] {
+        assert!(aliases.iter().any(|entry| {
+            entry["name"] == upstream
+                && entry["alias"] == public
+                && entry["force-mapping"] == true
+                && entry.get("fork").is_none()
+        }));
+    }
     assert_eq!(yaml["observability"]["logs"]["request-log"], false);
     assert_eq!(yaml["plugins"]["enabled"], false);
 }
@@ -255,6 +316,42 @@ async fn proxy_authenticates_corrects_body_and_removes_hop_headers() {
         response.json::<Value>().await.unwrap()["instructions"],
         CORRECTED
     );
+    finish(cancel, handles);
+}
+
+#[tokio::test]
+async fn proxy_accepts_legacy_claude_names_and_corrects_identity_on_both_protocols() {
+    let app = Router::new()
+        .route(
+            "/v1/responses",
+            post(|Json(body): Json<Value>| async move { Json(body) }),
+        )
+        .route(
+            "/v1/chat/completions",
+            post(|Json(body): Json<Value>| async move { Json(body) }),
+        );
+    let (url, cancel, handles) = proxy(app).await;
+    let client = relay::client().unwrap();
+    for path in ["/v1/responses", "/v1/chat/completions"] {
+        let request = json!({"model":"claude-opus-5-5-high", "instructions":SENTENCE,
+            "reasoning":{"effort":"low"},
+            "messages":[{"role":"system", "content":SENTENCE},
+                        {"role":"user", "content":SENTENCE}]});
+        let response = client
+            .post(format!("{url}{path}"))
+            .bearer_auth("test-key")
+            .json(&request)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let result: Value = response.json().await.unwrap();
+        let mut expected = request;
+        expected["model"] = json!("claude-opus-5-5");
+        expected["instructions"] = json!(CLAUDE_IDENTITY);
+        expected["messages"][0]["content"] = json!(CLAUDE_IDENTITY);
+        assert_eq!(result, expected);
+    }
     finish(cancel, handles);
 }
 

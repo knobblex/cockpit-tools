@@ -1,4 +1,4 @@
-use super::config::normalize_gemini_model_id;
+use super::config::normalize_model_id;
 use axum::{
     body::{to_bytes, Body, Bytes},
     extract::State,
@@ -22,37 +22,56 @@ static IDENTITY: LazyLock<Regex> = LazyLock::new(|| {
 const MAX_BODY: usize = 128 * 1024 * 1024;
 const MAX_CATALOG: usize = 1024 * 1024;
 
-pub fn normalize_identity(body: Bytes) -> Bytes {
+pub fn normalize_request(body: Bytes) -> Bytes {
     let Ok(mut value) = serde_json::from_slice::<Value>(&body) else {
         return body;
     };
     let Some(model) = value
         .get("model")
         .and_then(Value::as_str)
-        .filter(|m| m.to_ascii_lowercase().starts_with("gemini-"))
         .map(str::to_owned)
     else {
         return body;
     };
-    let normalized_model = normalize_gemini_model_id(&model);
+    let normalized_model = normalize_model_id(&model);
     let mut changed = false;
     if normalized_model != model {
         value["model"] = Value::String(normalized_model);
         changed = true;
     }
-    fn correct(value: &mut Value) -> bool {
+    let family = model.to_ascii_lowercase();
+    let identity = if family.starts_with("gemini-") {
+        Some("You are Codex, a coding assistant powered by Gemini.")
+    } else if family.starts_with("claude-") {
+        Some("You are Codex, a coding assistant powered by Claude.")
+    } else {
+        None
+    };
+    if let Some(identity) = identity {
+        changed |= correct_model_identity(&mut value, identity);
+    }
+    if changed {
+        serde_json::to_vec(&value).map(Bytes::from).unwrap_or(body)
+    } else {
+        body
+    }
+}
+
+fn correct_model_identity(value: &mut Value, identity: &str) -> bool {
+    fn correct(value: &mut Value, identity: &str) -> bool {
         let Some(text) = value.as_str() else {
             return false;
         };
-        let corrected =
-            IDENTITY.replace_all(text, "You are Codex, a coding assistant powered by Gemini.");
+        let corrected = IDENTITY.replace_all(text, identity);
         if corrected == text {
             return false;
         }
         *value = Value::String(corrected.into_owned());
         true
     }
-    changed |= value.get_mut("instructions").is_some_and(correct);
+    let mut changed = value
+        .get_mut("instructions")
+        .is_some_and(|value| correct(value, identity));
     for field in ["input", "messages"] {
         if let Some(messages) = value.get_mut(field).and_then(Value::as_array_mut) {
             for message in messages {
@@ -69,21 +88,19 @@ pub fn normalize_identity(body: Bytes) -> Bytes {
                                 part.get("type").and_then(Value::as_str),
                                 Some("text" | "input_text")
                             ) {
-                                changed |= part.get_mut("text").is_some_and(correct);
+                                changed |= part
+                                    .get_mut("text")
+                                    .is_some_and(|value| correct(value, identity));
                             }
                         }
                     } else {
-                        changed |= correct(content);
+                        changed |= correct(content, identity);
                     }
                 }
             }
         }
     }
-    if changed {
-        serde_json::to_vec(&value).map(Bytes::from).unwrap_or(body)
-    } else {
-        body
-    }
+    changed
 }
 
 #[derive(Clone)]
@@ -232,7 +249,7 @@ async fn forward(State(state): State<Relay>, request: Request<Body>) -> Response
     let body = if parts.method == "POST"
         && matches!(parts.uri.path(), "/v1/responses" | "/v1/chat/completions")
     {
-        normalize_identity(body)
+        normalize_request(body)
     } else {
         body
     };

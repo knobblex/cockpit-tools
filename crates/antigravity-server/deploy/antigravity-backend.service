@@ -1,0 +1,30 @@
+[Unit]
+Description=Antigravity CLIProxyAPI backend
+After=network-online.target privoxy.service antigravity-relay.service
+Requires=antigravity-relay.service
+PartOf=antigravity-relay.service
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+User=antigravity
+Group=antigravity
+WorkingDirectory=/var/lib/antigravity-upstream
+UMask=0077
+ExecStartPre=/opt/antigravity-upstream/cockpit-antigravity-server prepare /etc/antigravity-upstream/config.json
+ExecStart=/opt/antigravity-upstream/cliproxyapi -config /var/lib/antigravity-upstream/backend.generated.yaml
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/antigravity-upstream
+MemoryMax=512M
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target

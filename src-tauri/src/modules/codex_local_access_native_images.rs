@@ -111,7 +111,6 @@ async fn native_image_route_once(
     };
     accounts.retain(|account| {
         ids.contains(&account.id)
-            && seat_route_allows(&seat_state, key.map(|key| key.id.as_str()), &account.id, caller.id == NATIVE_INTERNAL_CALLER)
             && (caller.id == NATIVE_INTERNAL_CALLER || !service_account_paused(&collection, &account.id))
             && !account.is_web_session_auth()
             && !request.excluded_account_ids.contains(&account.id)
@@ -150,6 +149,13 @@ async fn native_image_route_once(
                     ),
                 ))
     });
+    seat_filter_model_accounts(
+        &seat_state,
+        key.map(|key| key.id.as_str()),
+        caller.id == NATIVE_INTERNAL_CALLER,
+        request.preferred_account_id.as_deref(),
+        &mut accounts,
+    )?;
     let mut closest_cooldown = None;
     {
         let cooldowns = host.cooldowns.lock().map_err(|_| {

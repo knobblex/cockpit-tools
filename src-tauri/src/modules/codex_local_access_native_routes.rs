@@ -1102,20 +1102,6 @@ async fn native_select_route_once(
     let (_, seat_state) = seat_routing_state()?;
     let seat_key = key.map(|key| key.id.as_str());
     let seat_internal = caller.id == NATIVE_INTERNAL_CALLER;
-    if request.preferred_account_id.as_deref().is_some_and(|id| !seat_route_allows(&seat_state, seat_key, id, seat_internal)) {
-        return Err(native_error(409, "seat_rotation_continuation_unavailable", "The original account is unavailable after a seat change; start a new conversation or wait for its recovery"));
-    }
-    if seat_state.routing_unverified(seat_key, seat_internal, seat_now()) {
-        return Err(native_error(
-            503,
-            "premium_seat_not_verified",
-            &format!(
-                "Premium seat routing is not verified: {}",
-                seat_state.message.as_deref()
-                    .unwrap_or("waiting for member, seat and quota verification"),
-            ),
-        ));
-    }
     let public_model = native_model_for_key(&collection, key, &request.model)?;
     let plan = native_model_route_plan(&collection, key, &public_model)?;
     // A continuation pins the credential namespace, never an account's currently
@@ -1246,7 +1232,6 @@ async fn native_select_route_once(
     }
     accounts.retain(|account| {
         native_eligible(account)
-            && seat_route_allows(&seat_state, seat_key, &account.id, seat_internal)
             && native_auxiliary_eligible(account, request.auxiliary.as_deref())
             && !request.excluded_account_ids.contains(&account.id)
             && !account.official_registration_id.as_ref().is_some_and(|id| {
@@ -1280,6 +1265,13 @@ async fn native_select_route_once(
             })
     });
     native_filter_capability_backups(&collection, &plan, &request, &mut accounts)?;
+    seat_filter_model_accounts(
+        &seat_state,
+        seat_key,
+        seat_internal,
+        request.preferred_account_id.as_deref(),
+        &mut accounts,
+    )?;
     // Quota reservation uses a separate coordinator lock. Resolve quota readiness
     // first, then combine it with in-memory cooldowns without nesting those locks.
     let quota_candidates: HashMap<_, _> = accounts

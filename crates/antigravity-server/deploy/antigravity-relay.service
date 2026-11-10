@@ -1,0 +1,25 @@
+[Unit]
+Description=Antigravity HTTP and SSE relay
+After=network-online.target privoxy.service
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+User=antigravity
+Group=antigravity
+WorkingDirectory=/var/lib/antigravity-upstream
+UMask=0077
+ExecStart=/opt/antigravity-upstream/cockpit-antigravity-server serve /etc/antigravity-upstream/config.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/antigravity-upstream
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

@@ -5,13 +5,20 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 // Public IDs omit effort; CLIProxyAPI still needs the upstream's actual IDs.
-const GEMINI_MODEL_ALIASES: [(&str, &str, &str); 2] = [
+const MODEL_ALIASES: [(&str, &str, &str); 5] = [
     ("gemini-4-argon-high", "gemini-4-argon", "Gemini 4 Argon"),
     (
         "gemini-3.8-flash-high",
         "gemini-3.8-flash",
         "Gemini 3.8 Flash",
     ),
+    ("claude-opus-5-5-high", "claude-opus-5-5", "Claude Opus 5.5"),
+    (
+        "claude-sonnet-5-5-high",
+        "claude-sonnet-5-5",
+        "Claude Sonnet 5.5",
+    ),
+    ("gpt-oss-120b-medium", "gpt-oss-120b", "GPT OSS 120B"),
 ];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -34,7 +41,7 @@ pub fn root() -> Result<PathBuf, String> {
         .join(".cockpit_tools/local-tools/antigravity-upstream"))
 }
 
-pub fn normalize_gemini_model_id(model: &str) -> String {
+pub fn normalize_model_id(model: &str) -> String {
     // Only rewrite models with a configured alias, so an unknown model cannot
     // become an ID the backend does not serve. rsplit_once is also UTF-8 safe.
     if let Some((base, effort)) = model.rsplit_once('-') {
@@ -42,7 +49,7 @@ pub fn normalize_gemini_model_id(model: &str) -> String {
             .iter()
             .any(|level| effort.eq_ignore_ascii_case(level))
         {
-            if let Some((_, alias, _)) = GEMINI_MODEL_ALIASES
+            if let Some((_, alias, _)) = MODEL_ALIASES
                 .iter()
                 .find(|(_, alias, _)| base.eq_ignore_ascii_case(alias))
             {
@@ -81,7 +88,7 @@ impl Config {
         }
         let mut config: Self = serde_json::from_value(value)
             .map_err(|_| String::from("Invalid tool configuration"))?;
-        config.model = normalize_gemini_model_id(&config.model);
+        config.model = normalize_model_id(&config.model);
         Ok(config)
     }
 
@@ -138,7 +145,7 @@ impl Config {
     }
 
     pub fn backend_config(&self, port: u16, key: &str) -> Value {
-        let aliases: Vec<Value> = GEMINI_MODEL_ALIASES
+        let aliases: Vec<Value> = MODEL_ALIASES
             .iter()
             .map(|(name, alias, display)| {
                 json!({

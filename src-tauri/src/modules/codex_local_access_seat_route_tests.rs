@@ -229,9 +229,17 @@ fn seat_validation_survives_request_stack_pressure() {
             .unwrap_err();
         assert_eq!(error.code, "premium_seat_not_verified");
     }
+    let provider = CodexAccount::new_api_key(
+        "fixture-provider".into(), "provider@example.invalid".into(), "fixture".into(),
+        crate::models::codex::CodexApiProviderMode::Custom,
+        Some("http://127.0.0.1:9/v1".into()), None, None,
+        vec!["gemini-4-argon-high".into()],
+    );
+    seat_validate_prepared_route(&provider, Some("fixture-key"), false).unwrap();
     state.phase = seat::Phase::Idle;
     state.validated_at = None;
     seat::save(&dir, &state).unwrap();
+    seat_validate_prepared_route(&provider, Some("fixture-key"), false).unwrap();
     let error = runtime
         .block_on(async { seat_validate_prepared_route(&holder, Some("fixture-key"), false) })
         .unwrap_err();
@@ -248,4 +256,95 @@ fn validate_with_stack_pressure(runtime: &tokio::runtime::Runtime, holder: &Code
         .block_on(async { seat_validate_prepared_route(holder, Some("fixture-key"), false) })
         .unwrap();
     std::hint::black_box(&request_stack);
+}
+
+#[test]
+fn seat_model_matching_keeps_independent_api_routes_and_oauth_guards() {
+    let holder = CodexAccount::new(
+        "holder".into(),
+        "holder@example.invalid".into(),
+        crate::models::codex::CodexTokens {
+            access_token: "fixture".into(),
+            refresh_token: None,
+            id_token: String::new(),
+        },
+    );
+    let mut other = holder.clone();
+    other.id = "other".into();
+    let provider = CodexAccount::new_api_key(
+        "provider".into(),
+        "provider@example.invalid".into(),
+        "fixture".into(),
+        crate::models::codex::CodexApiProviderMode::Custom,
+        Some("http://127.0.0.1:9/v1".into()),
+        None,
+        None,
+        vec!["gemini-4-argon-high".into()],
+    );
+    let collection: CodexLocalAccessCollection = serde_json::from_value(json!({
+        "enabled": true, "port": 1455, "apiKey": "fixture",
+        "accountIds": [holder.id, other.id, provider.id], "createdAt": 1, "updatedAt": 1
+    }))
+    .unwrap();
+    let mut state = seat::State {
+        config: Some(seat::Config {
+            enabled: true,
+            workspace_id: "workspace".into(),
+            admin_account_id: "admin".into(),
+            api_key_id: "key".into(),
+            use_api_key_pool: true,
+            member_account_ids: Vec::new(),
+            probe_model: String::new(),
+        }),
+        phase: seat::Phase::Ready,
+        holder_account_id: Some(holder.id.clone()),
+        validated_at: Some(seat_now()),
+        ..seat::State::default()
+    };
+    for phase in [seat::Phase::Ready, seat::Phase::Idle] {
+        state.phase = phase;
+        let plan = native_model_route_plan(&collection, None, "gemini-4-argon-high").unwrap();
+        let mut accounts = vec![holder.clone(), other.clone(), provider.clone()];
+        accounts.retain(|account| {
+            native_operation_model(&collection, &plan, account, None, false).is_some()
+        });
+        seat_filter_model_accounts(&state, Some("key"), false, Some("provider"), &mut accounts)
+            .unwrap();
+        assert_eq!(
+            accounts.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+            vec!["provider"]
+        );
+        // Independent permission does not broaden the provider's model catalog.
+        let missing = native_model_route_plan(&collection, None, "gemini-not-granted").unwrap();
+        assert!(native_plan_account_model(&missing, &provider).is_none());
+    }
+    // When both grant types support a model, an unverified seat must not
+    // suppress an independently authorized API route.
+    let mut mixed = vec![holder.clone(), provider.clone()];
+    seat_filter_model_accounts(&state, Some("key"), false, None, &mut mixed).unwrap();
+    assert_eq!(mixed.len(), 1);
+    assert_eq!(mixed[0].id, provider.id);
+    let mut empty = Vec::new();
+    seat_filter_model_accounts(&state, Some("key"), false, None, &mut empty).unwrap();
+    let mut oauth = vec![holder.clone(), other.clone()];
+    assert_eq!(
+        seat_filter_model_accounts(&state, Some("key"), false, None, &mut oauth)
+            .unwrap_err()
+            .code,
+        "premium_seat_not_verified"
+    );
+    state.phase = seat::Phase::Ready;
+    seat_filter_model_accounts(&state, Some("key"), false, None, &mut oauth).unwrap();
+    assert_eq!(oauth.len(), 1);
+    assert_eq!(oauth[0].id, holder.id);
+    let mut continuation = vec![other.clone()];
+    assert_eq!(
+        seat_filter_model_accounts(&state, Some("key"), false, Some("other"), &mut continuation)
+            .unwrap_err()
+            .code,
+        "seat_rotation_continuation_unavailable"
+    );
+    let mut unrelated = vec![other];
+    seat_filter_model_accounts(&state, Some("another-key"), false, None, &mut unrelated).unwrap();
+    assert_eq!(unrelated.len(), 1);
 }

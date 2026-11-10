@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.803] - 2026-11-10
+
+### Fixed
+
+- Apply premium-seat routing after model and account eligibility checks, preserving independent API-key and official-grant routes on the same client key.
+- Normalize configured Antigravity model aliases and correct known Codex/GPT identity instructions for Gemini and Claude while preserving user content and reasoning settings.
+
+### Added
+
+- Standalone Linux Antigravity service reusing the desktop relay, with systemd and Nginx deployment templates.
+
 ## [1.3.80] - 2026-11-07
 
 ### Added

@@ -1099,18 +1099,80 @@ fn seat_route_allows(
     state.allows(key, account, internal, seat_now())
 }
 
+// Only local OAuth credentials consume the rotating workspace seat. Independent
+// API/official grants keep their model permissions even on the same client key.
+fn seat_account_uses_rotation(account: &CodexAccount) -> bool {
+    !account.is_api_key_auth()
+        && !account.is_agent_identity_auth()
+        && !native_is_chatgpt_plan_account(account)
+}
+
+fn seat_account_route_allows(
+    state: &seat::State,
+    key: Option<&str>,
+    account: &CodexAccount,
+    internal: bool,
+) -> bool {
+    // Preserve the pending source/target barrier across keys and grant types.
+    seat_route_allows(
+        state,
+        if seat_account_uses_rotation(account) {
+            key
+        } else {
+            None
+        },
+        &account.id,
+        internal,
+    )
+}
+
+// Called only after model, key scope and account eligibility have been matched.
+fn seat_filter_model_accounts(
+    state: &seat::State,
+    key: Option<&str>,
+    internal: bool,
+    preferred: Option<&str>,
+    accounts: &mut Vec<CodexAccount>,
+) -> Result<(), native_contract::ServiceError> {
+    if accounts.iter().any(|account| {
+        preferred == Some(account.id.as_str())
+            && !seat_account_route_allows(state, key, account, internal)
+    }) {
+        return Err(native_error(409, "seat_rotation_continuation_unavailable", "The original account is unavailable after a seat change; start a new conversation or wait for its recovery"));
+    }
+    if !accounts.is_empty()
+        && accounts.iter().all(seat_account_uses_rotation)
+        && state.routing_unverified(key, internal, seat_now())
+    {
+        return Err(native_error(
+            503,
+            "premium_seat_not_verified",
+            &format!(
+                "Premium seat routing is not verified: {}",
+                state
+                    .message
+                    .as_deref()
+                    .unwrap_or("waiting for member, seat and quota verification"),
+            ),
+        ));
+    }
+    accounts.retain(|account| seat_account_route_allows(state, key, account, internal));
+    Ok(())
+}
+
 fn seat_validate_prepared_route(
     account: &CodexAccount,
     key: Option<&str>,
     internal: bool,
 ) -> Result<(), native_contract::ServiceError> {
     let (_, state) = seat_routing_state()?;
-    let managed = !internal
+    let managed = seat_account_uses_rotation(account)
+        && !internal
         && state
             .config
             .as_ref()
             .is_some_and(|c| c.enabled && key == Some(c.api_key_id.as_str()));
-    if !seat_route_allows(&state, key, &account.id, internal)
+    if !seat_account_route_allows(&state, key, account, internal)
         || (managed
             && (account.is_api_key_auth()
                 || account.is_agent_identity_auth()
@@ -1186,7 +1248,7 @@ fn seat_native_lease(
         )
     })?;
     let (_, state) = seat_routing_state()?;
-    if !seat_route_allows(&state, key, &account.id, internal) {
+    if !seat_account_route_allows(&state, key, account, internal) {
         return Err(native_error(
             503,
             "premium_seat_not_verified",

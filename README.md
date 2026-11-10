@@ -51,6 +51,8 @@
 
 ## 功能概览
 
+- **本地上游工具**：在设置的网络页管理 Rust 内置的 Antigravity 转发与 CLIProxyAPI 子进程，支持随 Cockpit 启停；使用和更新边界见[工具说明](src/local-tools/antigravity/README.md)。
+
 ### 1. 仪表盘 (Dashboard)
 
 全新的可视化仪表盘，为您提供一站式的状态概览：
