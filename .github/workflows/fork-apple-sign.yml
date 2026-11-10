@@ -182,6 +182,18 @@ jobs:
           brew install minisign
           mkdir -p "$RUNNER_TEMP/fork-signer"
           cp package.json package-lock.json "$RUNNER_TEMP/fork-signer/"
+          # Keep locked versions and integrity checks; avoid unavailable mirrors.
+          node <<'NODE'
+          const fs = require('node:fs');
+          const file = `${process.env.RUNNER_TEMP}/fork-signer/package-lock.json`;
+          const lock = JSON.parse(fs.readFileSync(file, 'utf8'));
+          for (const entry of Object.values(lock.packages || {})) {
+            if (typeof entry.resolved === 'string' && entry.resolved.startsWith('https://registry.npmmirror.com/')) {
+              entry.resolved = entry.resolved.replace('https://registry.npmmirror.com/', 'https://registry.npmjs.org/');
+            }
+          }
+          fs.writeFileSync(file, `${JSON.stringify(lock, null, 2)}\n`);
+          NODE
           npm ci --prefix "$RUNNER_TEMP/fork-signer" --ignore-scripts --include=dev --no-audit --no-fund
 
       - name: Prepare private key files
