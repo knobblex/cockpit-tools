@@ -165,7 +165,7 @@ GitHub 公共 latest 路由可能晚于 Release 状态变更。如果公开校�
 
 合并成功后，以不可变候选 SHA 调用现有 [Build Matrix](../.github/workflows/build-matrix.yml)，执行前置检查、定制席位轮换回归和全部平台构建。候选代码只有只读仓库权限和只读缓存，不继承签名 Secrets。控制脚本始终来自本次运行的默认分支提交，不能由候选代码替换。所有构建成功后，再核对候选身份及定制分支基线，以原子比较方式仅快进更新；构建期间有其他提交则停止，不覆盖新工作。
 
-晋升成功后调用 [`fork-publish.yml`](../.github/workflows/fork-publish.yml)，复用本次所有平台的构建产物，先创建绑定到已验证源码提交的 Release 草稿并上传中间资产。发布入口成功后，独立的 [`🍎 Fork Apple signing`](../.github/workflows/fork-apple-sign.yml) 工作流从默认分支运行可信控制脚本，不执行候选代码。它绑定对应的构建运行和源码，校验定制分支提交、更新地址和公钥，在 GitHub Actions 完成 Apple 签名、公证和产物验证，并使用 `FORK_UPDATER_PRIVATE_KEY` 签名和验证更新包及校验和清单。签名后的资产上传并验证后仍保留草稿，不自动公开。
+晋升成功后调用 [`fork-publish.yml`](../.github/workflows/fork-publish.yml)，复用本次所有平台的构建产物，先创建绑定到已验证源码提交的 Release 草稿并上传中间资产。发布入口成功后，独立的 [`🍎 Fork Apple signing`](../.github/workflows/fork-apple-sign.yml) 工作流从默认分支运行可信控制脚本，不执行候选代码。它绑定对应的构建运行和源码，校验定制分支提交、更新地址和公钥，在 GitHub Actions 完成 Apple 签名、公证和产物验证，并使用 `FORK_UPDATER_PRIVATE_KEY` 签名和验证更新包及校验和清单。签名后的资产上传并验证后仍保留草稿，不自动公开。更新草稿说明时显式保留原发布标签，并复核标签、源码和资产清单，防止草稿变成未标记状态。
 
 发布版本的唯一来源是 `package.json.version`，标签为 `fork-v<version>`；上游来源单独记录在 `package.json.forkUpstream`。Fork 版本以在上游补丁号末尾追加 `1` 为基础，例如上游 `1.3.78` 对应 Fork `1.3.781`；补丁号按十进制规范化，不保留前导零。同一上游基线的后续修订可继续递增 Fork 补丁号。同步新上游时，[版本策略](../scripts/release/fork-version.cjs)取该映射结果与当前 Fork 补丁号加一中的较大者，确保客户端只升级到更高版本。首次发布或重试构建时，在默认分支 Actions → **📦 Fork updater release** 手动运行。它对定制分支当前提交重新执行 Build Matrix；分支变化、版本降级或任一平台失败均停止。已有草稿只能续传指向相同提交的资产，公开版本不会被覆盖。
 

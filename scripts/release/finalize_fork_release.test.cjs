@@ -187,10 +187,14 @@ function finalizerFixture(t, overrides = {}) {
     }
     if (exe === 'gh' && args[0] === 'api') {
       assert.match(args[5], /^body=@/);
-      assert.deepEqual(args, ['api', '--method', 'PATCH', `repos/knobblex/cockpit-tools/releases/${draft.id}`,
-        '-F', args[5], '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true']);
-      assert.ok(fs.readFileSync(args[5].slice('body=@'.length), 'utf8').includes(source));
+      const expected = ['api', '--method', 'PATCH', `repos/knobblex/cockpit-tools/releases/${draft.id}`,
+        '-F', args[5], '-f', `tag_name=${draft.tag_name}`];
+      if (!options.uploadDraft) expected.push('-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true');
+      assert.deepEqual(args, expected, 'metadata updates must preserve the release tag explicitly');
+      const body = fs.readFileSync(args[5].slice('body=@'.length), 'utf8');
+      assert.ok(body.includes(source));
       assert.equal(uploaded, true);
+      if (options.uploadDraft) return JSON.stringify({ ...release(), body });
       published = true;
       return '';
     }
@@ -251,6 +255,18 @@ test('the complete finalizer verifies all three Mac outputs and uploads before p
   assert.equal(f.commandCalls.filter(([exe, args]) => exe === 'gh' && args[0] === 'api' && args[2] === 'PATCH').length, 1);
   const evidence = JSON.parse(fs.readFileSync(path.join(f.remote, 'Apple-notarization.json')));
   assert.equal(evidence.builds.length, 3);
+  verifyChecksums(f.remote);
+});
+
+test('signed draft notes preserve the original tag and asset inventory without publication', async t => {
+  const f = finalizerFixture(t);
+  f.options.publish = false;
+  f.options.uploadDraft = true;
+  const result = await finalizeFork(f.options, f.deps);
+  assert.equal(result.uploaded, true);
+  assert.equal(result.published, false);
+  assert.equal(f.state().publicVerified, false);
+  assert.deepEqual(f.state().signedArchs, ['aarch64', 'x64', 'universal']);
   verifyChecksums(f.remote);
 });
 

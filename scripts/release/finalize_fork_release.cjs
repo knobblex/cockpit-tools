@@ -367,7 +367,7 @@ async function finalizeFork(options, dependencies = {}) {
   }
   if (options.uploadDraft) {
     const updatedDraft = JSON.parse(commandRun('gh', ['api', '--method', 'PATCH', `repos/${REPO}/${releaseEndpoint}`,
-      '-F', `body=@${notes}`]));
+      '-F', `body=@${notes}`, '-f', `tag_name=${tag}`]));
     validateDraft(updatedDraft, tag, source, release.id);
     if (updatedDraft.body !== fs.readFileSync(notes, 'utf8')
         || JSON.stringify(assetSnapshot(updatedDraft)) !== JSON.stringify(assetSnapshot(uploaded))) {
@@ -377,7 +377,7 @@ async function finalizeFork(options, dependencies = {}) {
     return { assets, notes, published: false, uploaded: true };
   }
   commandRun('gh', ['api', '--method', 'PATCH', `repos/${REPO}/${releaseEndpoint}`,
-    '-F', `body=@${notes}`, '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true']);
+    '-F', `body=@${notes}`, '-f', `tag_name=${tag}`, '-F', 'draft=false', '-F', 'prerelease=false', '-f', 'make_latest=true']);
   console.log(`Published https://github.com/${REPO}/releases/tag/${tag}`);
   commandRun(process.execPath, [path.join(__dirname, 'verify_published_updater_manifests.cjs'), '--version', version,
     '--repo', REPO, '--release-base-url', `https://github.com/${REPO}/releases/download/${tag}`,
