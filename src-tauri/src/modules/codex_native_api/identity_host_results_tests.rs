@@ -6,9 +6,50 @@ fn host_result(namespace: &str, name: &str) -> Value {
 }
 
 #[test]
+fn page_host_results_reject_unknown_names_ids_and_nonportable_payloads() {
+    use crate::modules::codex_native_api::identity::rebuild::{paired_tools, replay_items};
+    for name in [
+        "unknown",
+        "create_thread",
+        "codex_apps_open_page_extra",
+        "codex_apps_selected_page_part_0_of_1",
+        "codex_apps_selected_page_part_2_of_1",
+        "codex_apps_selected_page_part_01_of_1",
+        "codex_apps_selected_page_part_1_of_0",
+        "codex_apps_selected_page_part_1_of_1_extra",
+        "codex_apps_selected_page_part_1_of_99999999999999999999",
+    ] {
+        assert!(!paired_tools(&[host_result("agent", name)]), "{name}");
+    }
+    for name in [
+        "codex_apps_open_page",
+        "codex_apps_selected_page_part_1_of_1",
+    ] {
+        for id in [json!(null), json!(42), json!(" "), json!("missing-call")] {
+            let mut item = host_result("agent", name);
+            item["call_id"] = id;
+            assert!(!paired_tools(&[item]));
+        }
+        assert!(!paired_tools(&[host_result("other", name)]));
+        let mut item = host_result("agent", name);
+        item["output"] = json!([{"type":"input_file", "file_id":"private-resource"}]);
+        assert!(!replay_items(&[item]));
+    }
+}
+
+#[test]
 fn host_results_survive_admission_wire_normalization_restart_and_account_switch() {
-    for namespace in ["codex_app", "codex_tui"] {
-        for name in ["create_thread", "send_message_to_thread"] {
+    for namespace in ["codex_app", "codex_tui", "agent"] {
+        let names = if namespace == "agent" {
+            vec![
+                "codex_apps_open_page",
+                "codex_apps_selected_page_part_1_of_1",
+                "codex_apps_selected_page_part_2_of_3",
+            ]
+        } else {
+            vec!["create_thread", "send_message_to_thread"]
+        };
+        for name in names {
             for empty_id in [false, true] {
                 for output in [
                     json!("Original host result\nwith exact whitespace.  "),

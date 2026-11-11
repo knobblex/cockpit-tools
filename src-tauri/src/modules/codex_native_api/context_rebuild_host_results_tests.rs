@@ -6,6 +6,56 @@ fn host_result(namespace: &str, name: &str) -> Value {
 }
 
 #[tokio::test]
+async fn page_host_results_preserve_old_chat_after_seat_rotation() {
+    for streaming in [false, true] {
+        for previous in [None, Some("page-a")] {
+            let fixture = Fixture::new(
+                true,
+                vec![Step::Complete("page-a", None)],
+                vec![Step::Complete("page-b", None)],
+            )
+            .await;
+            fixture.host.oauth.store(true, Ordering::SeqCst);
+            let first = body(vec![message("user", "original task")], None, streaming);
+            let response = fixture.post(&first, None).await;
+            assert_eq!(response.status(), 200);
+            response.text().await.unwrap();
+            let mut input = first["input"].as_array().unwrap().clone();
+            input.extend(
+                completed("page-a", None)["output"]
+                    .as_array()
+                    .unwrap()
+                    .clone(),
+            );
+            input.extend([
+                json!({"type":"function_call","name":"read_file","call_id":"real-call","arguments":"{}"}),
+                host_result("agent", "codex_apps_open_page"),
+                host_result("agent", "codex_apps_selected_page_part_1_of_2"),
+                host_result("agent", "codex_apps_selected_page_part_2_of_2"),
+                json!({"type":"function_call_output","call_id":"real-call","output":"original file"}),
+                message("user", "continue"),
+            ]);
+            fixture.host.seat_rotated.store(true, Ordering::SeqCst);
+            let response = fixture
+                .post(
+                    &body(input.clone(), previous, streaming),
+                    Some("synthetic-state-page-a"),
+                )
+                .await;
+            assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+            assert!(response.text().await.unwrap().contains("page-b"));
+            let sent = fixture.sent();
+            assert_eq!(sent.len(), 2);
+            assert_eq!(sent[1].account, "b");
+            assert_fresh(&sent[0], &sent[1], json!(input));
+            fixture.assert_owner("page-a", "a");
+            fixture.assert_owner("page-b", "b");
+            fixture.finish().await;
+        }
+    }
+}
+
+#[tokio::test]
 async fn host_results_continue_after_quota_failure_and_restart_without_losing_history() {
     for namespace in ["codex_app", "codex_tui"] {
         for streaming in [false, true] {

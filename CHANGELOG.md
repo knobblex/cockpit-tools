@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.812] - 2026-11-11
+
+### Fixed
+
+- Preserve Codex companion Page context when rebuilding old conversations after an account or premium-seat change, avoiding false HTTP 409 conflicts while retaining tool-result and caller ownership validation.
+
 ## [1.3.811] - 2026-11-10
 
 ### Fixed
