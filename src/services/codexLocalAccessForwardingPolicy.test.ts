@@ -15,4 +15,3 @@ test('forwarding policy bridge preserves the mode, selected IDs and confirmed st
     assert.equal(calls[calls.length - 1][1].policy, policy);
   }
 });
-
