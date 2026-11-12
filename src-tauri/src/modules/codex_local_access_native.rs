@@ -528,6 +528,22 @@ fn native_excluded(patterns: &[String], model: &str) -> bool {
             .any(|pattern| native_pattern_matches(pattern, model))
 }
 
+// The policy only narrows existing text/image/key scopes. Unknown seat identity is denied.
+fn native_forwarding_allows(collection: &CodexLocalAccessCollection, account: &CodexAccount) -> bool {
+    use crate::models::codex_local_access::CodexForwardingMode;
+    match collection.forwarding_policy.mode {
+        CodexForwardingMode::All => true,
+        CodexForwardingMode::SelectedAccounts => collection.forwarding_policy.account_ids.contains(&account.id),
+        CodexForwardingMode::PremiumOnly => {
+            !account.is_api_key_auth()
+                && !account.is_agent_identity_auth()
+                && !account.is_web_session_auth()
+                && account.plan_type.as_deref().is_some_and(|plan| plan.trim().eq_ignore_ascii_case("prolite"))
+                && seat::has_team_identity(account.plan_type.as_deref(), account.account_structure.as_deref())
+        }
+    }
+}
+
 fn native_scoped_account_ids(
     collection: &CodexLocalAccessCollection,
     key: Option<&CodexLocalAccessApiKey>,

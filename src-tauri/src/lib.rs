@@ -1247,6 +1247,7 @@ pub fn run() {
             commands::codex::codex_local_access_update_model_pricings,
             commands::codex::codex_local_access_reprice_request_logs,
             commands::codex::codex_local_access_update_routing_options,
+            commands::codex::codex_local_access_update_forwarding_policy,
             commands::codex::codex_local_access_update_timeouts,
             commands::codex::codex_local_access_update_timeout_presets,
             commands::codex::codex_local_access_update_upstream_proxy_config,

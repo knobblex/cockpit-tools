@@ -4709,6 +4709,16 @@
       "launchHint": "Hesap değişiminde ve Cockpit ile başlatmada kaydedilir. Çalışan istemciyi yeniden başlatın. Yeni sohbetler varsayılanı kullanır; mevcut sohbetlerin özel hızını istemcide ayarlayın."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Yönlendirme ilkesi",
+        "all": "Kullanılabilir tüm hesaplar",
+        "premiumOnly": "Yalnızca premium koltuklar",
+        "selectedAccounts": "Seçili hesaplar",
+        "hint": "Sohbet ve görsel isteklerine uygulanır. Anahtar kapsamları, model izinleri ve kota koruması geçerli olmaya devam eder. Seçilen modu uygulamak için kaydedin.",
+        "premiumHint": "Yalnızca ekip kimliği doğrulanmış ve prolite planına sahip yerel OAuth hesaplarına izin verilir. Koltuk bilgileri bilinmiyorsa veya uygun premium koltuk yoksa yönlendirme durur. Önce hesap bilgilerini yenileyin.",
+        "unavailable": "Kullanılamıyor; bu hesabın seçimini kaldırın",
+        "selectRequired": "En az bir hesap seçin."
+      },
       "inspection": {
         "internalScope": "Bu bir dahili istemci isteğidir. Hizmet hesap havuzunu ve örnek bağını denetleyin; genel istemci Key’i ile eşleşmez.",
         "keyUnavailable": "Bu isteğin istemci Key’i yok veya silinmiş. Mevcut Key’leri ve hesap havuzunu denetleyin.",

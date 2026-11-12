@@ -4709,6 +4709,16 @@
       "launchHint": "Wird beim Kontowechsel und Start über Cockpit gespeichert. Laufende Clients neu starten. Neue Chats nutzen den Standard; eigene Tempoeinstellungen bestehender Chats im Client ändern."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Weiterleitungsrichtlinie",
+        "all": "Alle verfügbaren Konten",
+        "premiumOnly": "Nur Premium-Sitze",
+        "selectedAccounts": "Ausgewählte Konten",
+        "hint": "Gilt für Chat- und Bildanfragen. Schlüsselbereiche, Modellberechtigungen und Kontingentschutz gelten weiterhin. Speichern, um den gewählten Modus anzuwenden.",
+        "premiumHint": "Nur lokale OAuth-Konten mit bestätigter Teamidentität und prolite-Tarif sind zulässig. Bei unbekannten Sitzdaten oder ohne verfügbaren Premium-Sitz wird die Weiterleitung gestoppt. Zuerst die Kontodaten aktualisieren.",
+        "unavailable": "Nicht verfügbar; Konto abwählen",
+        "selectRequired": "Mindestens ein Konto auswählen."
+      },
       "inspection": {
         "internalScope": "Dies ist eine interne Clientanfrage. Prüfen Sie den Kontopool des Dienstes und die Instanzbindung; sie entspricht keinem öffentlichen Client-Key.",
         "keyUnavailable": "Der Client-Key dieser Anfrage fehlt oder wurde gelöscht. Prüfen Sie die aktuellen Keys und den Kontopool.",

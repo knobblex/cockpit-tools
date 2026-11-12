@@ -51,7 +51,7 @@ fn native_official_scope_fingerprint(
     }));
     let material = json!({"caller":caller.id,"key":key,"enabled":collection.enabled,
         "primary":if collection.api_keys.is_empty() { collection.api_key.as_str() } else { "" },
-        "members":collection.account_ids,"paused":collection.paused_account_ids,
+        "members":collection.account_ids,"paused":collection.paused_account_ids,"forwarding":collection.forwarding_policy,
         "official":collection.official_account_bindings,"revision":collection.chatgpt_plan_service_revision,
         "identities":collection.service_account_identity_fingerprints,"excluded":collection.excluded_models,
         "aliases":collection.model_aliases,"rules":collection.account_model_rules,"restrictFree":collection.restrict_free_accounts});
@@ -95,6 +95,7 @@ fn native_local_fallback_model(
     if plan.provider
         || !plan.account_ids.contains(&account.id)
         || service_account_paused(collection, &account.id)
+        || !native_forwarding_allows(collection, account)
         || request.excluded_account_ids.contains(&account.id)
     {
         return Err(native_error(

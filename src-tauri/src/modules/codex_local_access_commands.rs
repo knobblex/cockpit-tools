@@ -31,6 +31,7 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
         native_gateway_default_migrated: true,
         upstream_proxy_url: None,
         routing_strategy: CodexLocalAccessRoutingStrategy::default(),
+        forwarding_policy: Default::default(),
         custom_routing_rules: Vec::new(),
         account_model_rules: Vec::new(),
         model_aliases: Vec::new(),
@@ -1873,4 +1874,37 @@ fn find_header_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4)
         .position(|window| window == b"\r\n\r\n")
         .map(|index| index + 4)
+}
+
+/// Forwarding restrictions are independent of scheduling and never enlarge key scope.
+pub async fn update_local_access_forwarding_policy(
+    mut policy: crate::models::codex_local_access::CodexForwardingPolicy,
+) -> Result<CodexLocalAccessState, String> {
+    use crate::models::codex_local_access::CodexForwardingMode;
+    ensure_runtime_loaded().await?;
+    let mut runtime = gateway_runtime().lock().await;
+    let mut collection = runtime.collection.clone().ok_or("本地接入集合尚未创建")?;
+    let mut seen = HashSet::new();
+    policy.account_ids = policy.account_ids.into_iter()
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty() && seen.insert(id.clone()))
+        .collect();
+    if policy.mode == CodexForwardingMode::SelectedAccounts && policy.account_ids.is_empty() {
+        return Err("指定账号模式至少需要选择一个账号".into());
+    }
+    if policy.mode == CodexForwardingMode::SelectedAccounts && policy.account_ids.iter().any(|id| {
+        !collection.account_ids.contains(id) && !collection.image_generation_account_ids.contains(id)
+            && !collection.api_keys.iter().any(|key| key.account_ids.contains(id)
+                || key.model_routing.as_ref().is_some_and(|routing|
+                    routing.routes.iter().any(|route| &route.provider_account_id == id)))
+    }) {
+        return Err("指定账号必须属于当前对话、生图或 Key 的账号范围，请刷新后重试".into());
+    }
+    collection.forwarding_policy = policy;
+    collection.updated_at = now_ms();
+    save_collection_to_disk(&collection)?;
+    sync_runtime_collection(&mut runtime, collection);
+    drop(runtime);
+    ensure_gateway_matches_runtime().await?;
+    snapshot_state().await
 }

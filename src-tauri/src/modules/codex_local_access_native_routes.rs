@@ -773,6 +773,7 @@ fn native_model_visible(
     account: &CodexAccount,
 ) -> bool {
     plan.account_ids.contains(&account.id)
+        && native_forwarding_allows(collection, account)
         && native_eligible(account)
         && (!plan.oauth_only || native_is_oauth_authorization_account(account))
         && !native_xai_base_denied(collection, key, plan, account)
@@ -1231,7 +1232,8 @@ async fn native_select_route_once(
         ));
     }
     accounts.retain(|account| {
-        native_eligible(account)
+        (caller.id == NATIVE_INTERNAL_CALLER || native_forwarding_allows(&collection, account))
+            && native_eligible(account)
             && native_auxiliary_eligible(account, request.auxiliary.as_deref())
             && !request.excluded_account_ids.contains(&account.id)
             && !account.official_registration_id.as_ref().is_some_and(|id| {
@@ -1931,6 +1933,9 @@ async fn native_route_for_reserved_account(
     seat_internal: bool,
     http1_only: bool,
 ) -> Result<native_contract::Route, native_contract::ServiceError> {
+    if !seat_internal && !native_forwarding_allows(&host.collection().await?, &account) {
+        return Err(native_error(403, "forwarding_account_not_allowed", "Account is excluded by the forwarding policy"));
+    }
     let permit = seat_native_lease(&account, seat_key, seat_internal, permit)?;
     let account = native_prepare_account(account, force_refresh).await?;
     let (account, mut headers, base_url, official_authorization_revision) =
@@ -2068,6 +2073,9 @@ async fn native_route_for_reserved_account(
     if headers.contains_key("x-xai-token-auth") {
         crate::modules::grok_client_version::refresh_in_background(client.clone());
     }
+    if !seat_internal && !native_forwarding_allows(&host.collection().await?, &account) {
+        return Err(native_error(403, "forwarding_account_not_allowed", "Account no longer satisfies the forwarding policy"));
+    }
     seat_validate_prepared_route(&account, seat_key, seat_internal)?;
     Ok(native_contract::Route {
         official_fallback_registration_id: None,
@@ -2190,7 +2198,7 @@ fn native_append_image_models(
     };
     for account in accounts
         .iter()
-        .filter(|account| !service_account_paused(collection, &account.id))
+        .filter(|account| !service_account_paused(collection, &account.id) && native_forwarding_allows(collection, account))
         .filter(|account| image_ids.contains(&account.id) && native_eligible(account))
     {
         let family = &collection.image_generation_model;

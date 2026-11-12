@@ -544,3 +544,9 @@ export function queryCodexOverloadAttempts(accountId: string, startAt: number, e
     accountId, startAt, endAt, beforeTimestamp: before?.timestamp ?? null, beforeId: before?.id ?? null,
   });
 }
+
+export async function updateCodexLocalAccessForwardingPolicy(
+  policy: import('../types/codexLocalAccess').CodexForwardingPolicy,
+): Promise<CodexLocalAccessState> {
+  return invoke('codex_local_access_update_forwarding_policy', { policy });
+}

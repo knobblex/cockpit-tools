@@ -1186,6 +1186,7 @@ fn new_empty_local_access_collection() -> Result<CodexLocalAccessCollection, Str
         native_gateway_default_migrated: true,
         upstream_proxy_url: None,
         routing_strategy: CodexLocalAccessRoutingStrategy::default(),
+        forwarding_policy: Default::default(),
         custom_routing_rules: Vec::new(),
         account_model_rules: Vec::new(),
         model_aliases: Vec::new(),

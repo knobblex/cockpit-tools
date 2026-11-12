@@ -4709,6 +4709,16 @@
       "launchHint": "切換帳號及透過 Cockpit 啟動時寫入客戶端設定。執行中的客戶端需重新啟動；新對話使用預設檔位，既有對話的獨立速度設定需在客戶端調整。"
     },
     "apiService": {
+      "forwarding": {
+        "title": "轉發策略",
+        "all": "全部可用帳號",
+        "premiumOnly": "僅轉發高級席位",
+        "selectedAccounts": "指定帳號",
+        "hint": "適用於對話和生圖請求；繼續遵守 Key 範圍、模型權限與額度保護。切換模式後點擊儲存生效。",
+        "premiumHint": "僅使用已確認團隊身分且方案為 prolite 的本機 OAuth 高級席位。資料未知或沒有可用高級席位時停止轉發，請先重新整理帳號資料。",
+        "unavailable": "無法使用，請取消選取",
+        "selectRequired": "請至少選取一個帳號。"
+      },
       "inspection": {
         "internalScope": "這是內部用戶端請求，請檢查服務帳號池及執行個體綁定；它不對應公開用戶端 Key。",
         "keyUnavailable": "請求對應的用戶端 Key 已刪除或不存在，請檢查目前 Key 和帳號池。",

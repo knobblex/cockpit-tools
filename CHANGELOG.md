@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.813] - 2026-11-12
+
+### Added
+
+- Configure the Codex API Service [forwarding policy](docs/CODEX_API_SERVICE_HANDOFF.md#scope-and-runtime) from Overview, with premium-seat-only and selected-account modes. Apply the saved restriction to chat, images, model discovery, retries and authorization fallback while preserving Key permissions and quota protection.
+
 ## [1.3.812] - 2026-11-11
 
 ### Fixed

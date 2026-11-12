@@ -4756,6 +4756,16 @@
       "launchHint": "Disimpan saat berganti akun dan menjalankan melalui Cockpit. Mulai ulang klien yang aktif. Percakapan baru memakai nilai bawaan; atur kecepatan percakapan lama di klien."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Kebijakan penerusan",
+        "all": "Semua akun yang tersedia",
+        "premiumOnly": "Hanya kursi premium",
+        "selectedAccounts": "Akun yang dipilih",
+        "hint": "Berlaku untuk permintaan obrolan dan gambar. Cakupan kunci, izin model, dan perlindungan kuota tetap berlaku. Simpan untuk menerapkan mode yang dipilih.",
+        "premiumHint": "Hanya akun OAuth lokal dengan identitas tim terkonfirmasi dan paket prolite yang diizinkan. Penerusan berhenti jika data kursi tidak diketahui atau tidak ada kursi premium yang memenuhi syarat. Perbarui detail akun terlebih dahulu.",
+        "unavailable": "Tidak tersedia; batalkan pilihan akun ini",
+        "selectRequired": "Pilih setidaknya satu akun."
+      },
       "inspection": {
         "internalScope": "Ini permintaan klien internal. Periksa kumpulan akun layanan dan kaitan instans; permintaan ini tidak terkait dengan Key klien publik.",
         "keyUnavailable": "Key klien untuk permintaan ini tidak ada atau sudah dihapus. Periksa Key saat ini dan kumpulan akun.",

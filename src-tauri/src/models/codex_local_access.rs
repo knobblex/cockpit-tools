@@ -30,6 +30,24 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexForwardingMode {
+    #[default]
+    All,
+    PremiumOnly,
+    SelectedAccounts,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexForwardingPolicy {
+    #[serde(default)]
+    pub mode: CodexForwardingMode,
+    #[serde(default)]
+    pub account_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CodexLocalAccessRoutingStrategy {
@@ -730,6 +748,8 @@ pub struct CodexLocalAccessCollection {
     pub upstream_proxy_url: Option<String>,
     #[serde(default)]
     pub routing_strategy: CodexLocalAccessRoutingStrategy,
+    #[serde(default)]
+    pub forwarding_policy: CodexForwardingPolicy,
     #[serde(default)]
     pub custom_routing_rules: Vec<CodexLocalAccessCustomRoutingRule>,
     #[serde(default)]

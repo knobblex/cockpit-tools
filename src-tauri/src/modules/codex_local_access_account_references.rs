@@ -17,6 +17,7 @@ fn replace_collection_account_references(
             .fold(false, |changed, value| replace(value, old, new) | changed)
     }
     let mut changed = replace_list(&mut collection.account_ids, old_id, new_id);
+    changed |= replace_list(&mut collection.forwarding_policy.account_ids, old_id, new_id);
     changed |= replace_list(
         &mut collection.capability_fallback.account_ids,
         old_id,

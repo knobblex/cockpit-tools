@@ -4709,6 +4709,16 @@
       "launchHint": "Lưu khi đổi tài khoản và khởi chạy qua Cockpit. Khởi động lại máy khách đang chạy. Hội thoại mới dùng mặc định; chỉnh tốc độ riêng của hội thoại cũ trong máy khách."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Chính sách chuyển tiếp",
+        "all": "Tất cả tài khoản khả dụng",
+        "premiumOnly": "Chỉ ghế cao cấp",
+        "selectedAccounts": "Tài khoản được chọn",
+        "hint": "Áp dụng cho yêu cầu trò chuyện và hình ảnh. Phạm vi khóa, quyền mô hình và bảo vệ hạn mức vẫn có hiệu lực. Lưu để áp dụng chế độ đã chọn.",
+        "premiumHint": "Chỉ cho phép tài khoản OAuth cục bộ có danh tính nhóm đã xác nhận và gói prolite. Dừng chuyển tiếp nếu thông tin ghế chưa rõ hoặc không có ghế cao cấp đủ điều kiện. Hãy làm mới thông tin tài khoản trước.",
+        "unavailable": "Không khả dụng; bỏ chọn tài khoản này",
+        "selectRequired": "Chọn ít nhất một tài khoản."
+      },
       "inspection": {
         "internalScope": "Đây là yêu cầu của ứng dụng khách nội bộ. Hãy kiểm tra nhóm tài khoản dịch vụ và liên kết phiên bản; yêu cầu không tương ứng với Key khách công khai.",
         "keyUnavailable": "Key khách của yêu cầu này không tồn tại hoặc đã bị xóa. Hãy kiểm tra các Key hiện tại và nhóm tài khoản.",

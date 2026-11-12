@@ -50,7 +50,11 @@ fn seat_probe_model(
     // Use the native service's existing catalog, scoped to this exact member.
     // No image-model append, cross-account fallback, or paid trial enumeration.
     let discovered = if config.probe_model.trim().is_empty() {
-        let catalog = native_catalog(collection, Some(key), std::slice::from_ref(account))
+        // A standard member must be discoverable before promotion. Directed
+        // validation keeps key/model ACLs but is outside public forwarding policy.
+        let mut probe_collection = collection.clone();
+        probe_collection.forwarding_policy = Default::default();
+        let catalog = native_catalog(&probe_collection, Some(key), std::slice::from_ref(account))
             .map_err(|_| "无法读取目标成员的模型目录")?;
         catalog["models"]
             .as_array()

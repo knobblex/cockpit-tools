@@ -4709,6 +4709,16 @@
       "launchHint": "Zapisywane przy zmianie konta i uruchomieniu z Cockpit. Uruchom ponownie aktywnego klienta. Nowe czaty używają tej wartości; prędkość istniejących czatów zmień w kliencie."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Zasady przekazywania",
+        "all": "Wszystkie dostępne konta",
+        "premiumOnly": "Tylko miejsca premium",
+        "selectedAccounts": "Wybrane konta",
+        "hint": "Dotyczy żądań czatu i obrazów. Zakresy kluczy, uprawnienia modeli i ochrona limitów nadal obowiązują. Zapisz, aby zastosować wybrany tryb.",
+        "premiumHint": "Dozwolone są tylko lokalne konta OAuth z potwierdzoną tożsamością zespołową i planem prolite. Nieznane dane miejsca lub brak uprawnionego miejsca premium zatrzymują przekazywanie. Najpierw odśwież dane konta.",
+        "unavailable": "Niedostępne; odznacz to konto",
+        "selectRequired": "Wybierz co najmniej jedno konto."
+      },
       "inspection": {
         "internalScope": "To żądanie klienta wewnętrznego. Sprawdź pulę kont usługi i powiązanie instancji; nie odpowiada ono publicznemu kluczowi klienta.",
         "keyUnavailable": "Klucz klienta tego żądania nie istnieje lub został usunięty. Sprawdź obecne klucze i pulę kont.",

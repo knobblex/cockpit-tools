@@ -4709,6 +4709,16 @@
       "launchHint": "Se guarda al cambiar de cuenta y al iniciar con Cockpit. Reinicia el cliente activo. Los chats nuevos usan este valor; ajusta la velocidad propia de los chats existentes en el cliente."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Política de reenvío",
+        "all": "Todas las cuentas disponibles",
+        "premiumOnly": "Solo puestos prémium",
+        "selectedAccounts": "Cuentas seleccionadas",
+        "hint": "Se aplica a las solicitudes de chat e imágenes. Se mantienen los ámbitos de las claves, los permisos de los modelos y la protección de cuota. Guarda para aplicar el modo seleccionado.",
+        "premiumHint": "Solo se admiten cuentas OAuth locales con identidad de equipo confirmada y un plan prolite. El reenvío se detiene si los datos del puesto son desconocidos o no hay puestos prémium aptos. Actualiza primero los datos de la cuenta.",
+        "unavailable": "No disponible; desmarca esta cuenta",
+        "selectRequired": "Selecciona al menos una cuenta."
+      },
       "inspection": {
         "internalScope": "Es una solicitud del cliente interno. Comprueba el grupo de cuentas del servicio y el vínculo de la instancia; no corresponde a una Key de cliente público.",
         "keyUnavailable": "La Key del cliente de esta solicitud no existe o se eliminó. Comprueba las Keys actuales y el grupo de cuentas.",

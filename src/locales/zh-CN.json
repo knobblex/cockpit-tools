@@ -4952,6 +4952,16 @@
       "launchHint": "切号及通过 Cockpit 启动时写入客户端配置。运行中的客户端需重启；新会话使用默认档位，已有会话的独立速度设置需在客户端调整。"
     },
     "apiService": {
+      "forwarding": {
+        "title": "转发策略",
+        "all": "全部可用账号",
+        "premiumOnly": "只转发高级席位",
+        "selectedAccounts": "指定账号",
+        "hint": "适用于对话和生图请求；继续遵守 Key 范围、模型权限与额度保护。模式切换后点击保存生效。",
+        "premiumHint": "仅使用已确认团队身份且套餐为 prolite 的本地 OAuth 高级席位。资料未知或没有可用高级席位时停止转发，请先刷新账号资料。",
+        "unavailable": "不可用，请取消选择",
+        "selectRequired": "请至少选择一个账号。"
+      },
       "inspection": {
         "internalScope": "这是内部客户端请求，请检查服务账号池及实例绑定；它不对应公开客户端 Key。",
         "keyUnavailable": "请求对应的客户端 Key 已删除或不存在，请检查当前 Key 和账号池。",

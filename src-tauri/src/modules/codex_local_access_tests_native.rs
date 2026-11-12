@@ -41,6 +41,104 @@ fn native_test_account() -> CodexAccount {
 }
 
 #[test]
+fn forwarding_policy_defaults_roundtrips_and_does_not_widen_key_scope() {
+    use crate::models::codex_local_access::CodexForwardingMode;
+    let mut collection = native_test_collection();
+    let account = native_test_account();
+    assert!(native_forwarding_allows(&collection, &account));
+    collection.forwarding_policy.mode = CodexForwardingMode::SelectedAccounts;
+    assert!(!native_forwarding_allows(&collection, &account));
+    collection.forwarding_policy.account_ids = vec![account.id.clone()];
+    let restored: CodexLocalAccessCollection = serde_json::from_value(serde_json::to_value(&collection).unwrap()).unwrap();
+    assert_eq!(restored.forwarding_policy, collection.forwarding_policy);
+    assert!(native_forwarding_allows(&restored, &account));
+    let mut key = native_test_key();
+    key.inherit_account_pool = Some(false);
+    key.account_ids = vec!["pool-a".into()];
+    let plan = native_model_route_plan(&collection, Some(&key), "gpt-5.2-codex").unwrap();
+    assert!(!native_model_visible(&collection, Some(&key), &plan, &account));
+    assert_eq!(plan.account_ids, vec!["pool-a"]);
+}
+
+#[test]
+fn forwarding_policy_premium_requires_local_oauth_and_confirmed_team_seat() {
+    use crate::models::codex_local_access::CodexForwardingMode;
+    let mut collection = native_test_collection();
+    collection.forwarding_policy.mode = CodexForwardingMode::PremiumOnly;
+    let mut account = native_test_account();
+    account.plan_type = Some("prolite".into());
+    assert!(!native_forwarding_allows(&collection, &account));
+    account.account_structure = Some("workspace".into());
+    assert!(native_forwarding_allows(&collection, &account));
+    account.account_structure = Some("personal".into());
+    assert!(!native_forwarding_allows(&collection, &account));
+    account.account_structure = Some("workspace".into());
+    for plan in [None, Some("business"), Some("plus"), Some("pro"), Some("free")] {
+        account.plan_type = plan.map(str::to_owned);
+        assert!(!native_forwarding_allows(&collection, &account));
+    }
+    let mut provider = native_automatic_fixture();
+    provider.plan_type = Some("prolite".into());
+    provider.account_structure = Some("workspace".into());
+    assert!(!native_forwarding_allows(&collection, &provider));
+    provider.api_provider_id = Some("cockpit_chatgpt_plan".into());
+    assert!(!native_forwarding_allows(&collection, &provider));
+}
+
+#[test]
+fn forwarding_policy_catalog_filters_text_and_independent_image_sources() {
+    use crate::models::codex_local_access::CodexForwardingMode;
+    let mut collection = native_test_collection();
+    let mut account = native_automatic_fixture();
+    account.api_model_catalog.push("gpt-image-2.5".into());
+    collection.image_generation_account_ids = vec![account.id.clone()];
+    collection.image_generation_model = "gpt-image-2.5".into();
+    let full = native_catalog(&collection, None, &[account.clone()]).unwrap();
+    assert!(full["data"].as_array().unwrap().iter().any(|entry| entry["id"] == "client-text"));
+    assert!(full["data"].as_array().unwrap().iter().any(|entry| entry["id"] == "gpt-image-2.5"));
+    collection.forwarding_policy.mode = CodexForwardingMode::SelectedAccounts;
+    let empty = native_catalog(&collection, None, &[account.clone()]).unwrap();
+    assert!(empty["data"].as_array().unwrap().is_empty());
+    collection.forwarding_policy.account_ids = vec![account.id.clone()];
+    let selected = native_catalog(&collection, None, &[account]).unwrap();
+    assert_eq!(selected["data"], full["data"]);
+}
+
+#[test]
+fn forwarding_policy_does_not_hide_standard_members_from_directed_seat_validation() {
+    use crate::models::codex_local_access::CodexForwardingMode;
+    let mut collection = native_test_collection();
+    collection.forwarding_policy.mode = CodexForwardingMode::PremiumOnly;
+    let mut account = native_test_account();
+    account.id = "pool-a".into();
+    account.plan_type = Some("business".into());
+    account.account_structure = Some("workspace".into());
+    let config: seat::Config = serde_json::from_value(json!({
+        "enabled":true,"workspaceId":"workspace","adminAccountId":"admin","apiKeyId":"fixture-key-id",
+        "memberAccountIds":[],"probeModel":""
+    })).unwrap();
+    let key = native_test_key();
+    assert!(!native_forwarding_allows(&collection, &account));
+    assert!(seat_probe_model(&config, &collection, &key, &account).is_ok());
+    let mut denied = key;
+    denied.allowed_models = vec!["inaccessible-model".into()];
+    assert!(seat_probe_model(&config, &collection, &denied, &account).is_err());
+}
+
+#[tokio::test]
+async fn forwarding_policy_rechecks_reserved_account_before_credentials_or_upstream_io() {
+    use crate::models::codex_local_access::CodexForwardingMode;
+    let original = native_test_collection();
+    let mut current = original.clone();
+    current.forwarding_policy.mode = CodexForwardingMode::SelectedAccounts;
+    let mut host = NativeHostBridge::default();
+    host.collection_override = Some(current);
+    let error = native_route_for_reserved_account(&host, &original, native_test_account(),
+        "gpt-5.2-codex".into(), false, None, None, false, false).await.err().expect("forwarding policy rejects account");
+    assert_eq!(error.code, "forwarding_account_not_allowed");
+}
+
+#[test]
 fn native_public_keys_are_rechecked_for_revocation_disable_and_limits() {
     let mut collection = native_test_collection();
     let mut key = native_test_key();

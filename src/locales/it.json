@@ -4709,6 +4709,16 @@
       "launchHint": "Salvato al cambio account e all’avvio da Cockpit. Riavvia il client attivo. Le nuove chat usano questo valore; modifica nel client la velocità delle chat esistenti."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Criteri di inoltro",
+        "all": "Tutti gli account disponibili",
+        "premiumOnly": "Solo posti premium",
+        "selectedAccounts": "Account selezionati",
+        "hint": "Si applica alle richieste di chat e immagini. Restano validi gli ambiti delle chiavi, le autorizzazioni dei modelli e la protezione delle quote. Salva per applicare la modalità selezionata.",
+        "premiumHint": "Sono ammessi solo account OAuth locali con identità del team confermata e piano prolite. L’inoltro si interrompe se i dati del posto sono sconosciuti o non ci sono posti premium idonei. Aggiorna prima i dati dell’account.",
+        "unavailable": "Non disponibile; deseleziona questo account",
+        "selectRequired": "Seleziona almeno un account."
+      },
       "inspection": {
         "internalScope": "È una richiesta del client interno. Verifica il pool di account del servizio e il legame dell’istanza; non corrisponde a una Key di client pubblico.",
         "keyUnavailable": "La Key del client di questa richiesta manca o è stata eliminata. Verifica le Keys attuali e il pool di account.",

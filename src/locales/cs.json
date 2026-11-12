@@ -4709,6 +4709,16 @@
       "launchHint": "Uloží se při změně účtu a spuštění přes Cockpit. Běžícího klienta restartujte. Nové chaty použijí tuto hodnotu; vlastní rychlost stávajících chatů změňte v klientu."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Pravidla předávání",
+        "all": "Všechny dostupné účty",
+        "premiumOnly": "Pouze prémiová místa",
+        "selectedAccounts": "Vybrané účty",
+        "hint": "Platí pro požadavky na chat i obrázky. Rozsah klíčů, oprávnění modelů a ochrana kvóty zůstávají v platnosti. Režim použijete uložením.",
+        "premiumHint": "Povoleny jsou pouze místní účty OAuth s potvrzenou týmovou identitou a tarifem prolite. Neznámé údaje nebo žádné způsobilé prémiové místo zastaví předávání. Nejprve obnovte údaje účtu.",
+        "unavailable": "Nedostupný; zrušte výběr účtu",
+        "selectRequired": "Vyberte alespoň jeden účet."
+      },
       "inspection": {
         "internalScope": "Jde o požadavek interního klienta. Zkontrolujte fond účtů služby a vazbu instance; neodpovídá veřejnému klientskému klíči.",
         "keyUnavailable": "Klientský klíč tohoto požadavku chybí nebo byl odstraněn. Zkontrolujte aktuální klíče a fond účtů.",

@@ -1008,3 +1008,10 @@ mod tests {
         assert_eq!(summary.model_stats_count, 1);
     }
 }
+
+#[tauri::command]
+pub async fn codex_local_access_update_forwarding_policy(
+    policy: crate::models::codex_local_access::CodexForwardingPolicy,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::update_local_access_forwarding_policy(policy).await
+}

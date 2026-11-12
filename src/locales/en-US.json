@@ -4952,6 +4952,16 @@
       "launchHint": "Written to client config on account switch and Cockpit launch. Restart a running client. New chats use the default; adjust existing chats with independent speed settings in the client."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Forwarding policy",
+        "all": "All available accounts",
+        "premiumOnly": "Premium seats only",
+        "selectedAccounts": "Selected accounts",
+        "hint": "Applies to chat and image requests. Key scopes, model permissions and quota protection still apply. Save to apply the selected mode.",
+        "premiumHint": "Only local OAuth members with a confirmed team identity and a prolite plan are eligible. Unknown seat details or no eligible premium seat stop forwarding. Refresh account details first.",
+        "unavailable": "Unavailable; deselect this account",
+        "selectRequired": "Select at least one account."
+      },
       "inspection": {
         "internalScope": "This is an internal client request. Check the service account pool and instance binding; it does not correspond to a public client Key.",
         "keyUnavailable": "The client Key for this request is missing or was deleted. Check current Keys and the account pool.",

@@ -17,6 +17,17 @@ React page -> Tauri commands -> Rust collection/runtime -> native engine
 Optional [premium seat rotation](codex-premium-seat-rotation.md) coordinates an
 existing workspace seat and native routing. It is experimental and disabled by default.
 
+**Overview → Forwarding policy** narrows both chat and image candidates before
+scheduling. Existing configurations default to all available accounts. Premium-only
+mode accepts local OAuth accounts with confirmed team identity and a `prolite`
+plan snapshot; unknown identities, personal plans and independent API/official
+grants are excluded. Refresh account details to update that snapshot. Selected-account
+mode accepts accounts from chat/image pools and explicit Key scopes; an empty
+effective list stops forwarding. Save applies the mode while retaining the selection for later
+switches. Key scope, model permissions, seat barriers, cooldowns and quota protection
+still apply. Model discovery, retries and official-to-local fallback use the same
+restriction. Internal directed probes and instance gateways keep their own scope.
+
 ## Source ownership
 
 | Area | Source | Responsibility |
@@ -39,7 +50,6 @@ existing workspace seat and native routing. It is experimental and disabled by d
   rejected models and account eligibility alongside successful routing.
 - Subscription quota cooldown uses the [availability predicate](../src-tauri/src/modules/codex_seat_rotation.rs)
   described by [request-triggered seat rotation](codex-premium-seat-rotation.md#自动流程).
-  Seat routing and account/model permissions apply together.
 - Derive artifact paths from the application's data directory in the coordinator.
   Generated runtime files can contain credentials; keep them out of logs, issues
   and fixtures. Use the existing redaction and API logging helpers.

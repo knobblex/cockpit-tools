@@ -4709,6 +4709,16 @@
       "launchHint": "Enregistré à la connexion et au lancement via Cockpit. Redémarrez le client actif. Les nouveaux chats utilisent ce réglage ; ajustez la vitesse des chats existants dans le client."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Politique de transfert",
+        "all": "Tous les comptes disponibles",
+        "premiumOnly": "Sièges premium uniquement",
+        "selectedAccounts": "Comptes sélectionnés",
+        "hint": "S’applique aux requêtes de discussion et d’images. Les périmètres des clés, les autorisations des modèles et la protection des quotas restent applicables. Enregistrez pour appliquer le mode choisi.",
+        "premiumHint": "Seuls les comptes OAuth locaux avec une identité d’équipe confirmée et une offre prolite sont autorisés. Le transfert s’arrête si les données du siège sont inconnues ou si aucun siège premium n’est éligible. Actualisez d’abord les données du compte.",
+        "unavailable": "Indisponible ; désélectionnez ce compte",
+        "selectRequired": "Sélectionnez au moins un compte."
+      },
       "inspection": {
         "internalScope": "Il s’agit d’une requête du client interne. Vérifiez le pool de comptes du service et le lien de l’instance ; elle ne correspond pas à une Key de client public.",
         "keyUnavailable": "La Key du client de cette requête est absente ou supprimée. Vérifiez les Keys actuelles et le pool de comptes.",

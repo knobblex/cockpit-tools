@@ -151,6 +151,12 @@ export interface CodexLocalAccessTimeoutPreset {
   updatedAt: number;
 }
 
+export type CodexForwardingMode = 'all' | 'premium_only' | 'selected_accounts';
+export interface CodexForwardingPolicy {
+  mode: CodexForwardingMode;
+  accountIds: string[];
+}
+
 export interface CodexLocalAccessCollection {
   multiAgent?: CodexMultiAgentConfig;
   enabled: boolean;
@@ -175,6 +181,7 @@ export interface CodexLocalAccessCollection {
   nativeGatewayDefaultMigrated?: boolean;
   upstreamProxyUrl?: string | null;
   routingStrategy: CodexLocalAccessRoutingStrategy;
+  forwardingPolicy?: CodexForwardingPolicy;
   capabilityFallback?: CodexCapabilityFallbackConfig;
   customRoutingRules: CodexLocalAccessCustomRoutingRule[];
   accountModelRules: CodexLocalAccessAccountModelRule[];

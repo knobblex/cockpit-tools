@@ -111,6 +111,7 @@ async fn native_image_route_once(
     };
     accounts.retain(|account| {
         ids.contains(&account.id)
+            && (caller.id == NATIVE_INTERNAL_CALLER || native_forwarding_allows(&collection, account))
             && (caller.id == NATIVE_INTERNAL_CALLER || !service_account_paused(&collection, &account.id))
             && !account.is_web_session_auth()
             && !request.excluded_account_ids.contains(&account.id)

@@ -4709,6 +4709,16 @@
       "launchHint": "Salvo ao trocar de conta e iniciar pelo Cockpit. Reinicie o cliente ativo. Novas conversas usam este valor; ajuste no cliente a velocidade própria de conversas existentes."
     },
     "apiService": {
+      "forwarding": {
+        "title": "Política de encaminhamento",
+        "all": "Todas as contas disponíveis",
+        "premiumOnly": "Somente assentos premium",
+        "selectedAccounts": "Contas selecionadas",
+        "hint": "Aplica-se às solicitações de chat e imagens. Os escopos das chaves, as permissões dos modelos e a proteção de cota continuam valendo. Salve para aplicar o modo selecionado.",
+        "premiumHint": "Somente contas OAuth locais com identidade de equipe confirmada e plano prolite são permitidas. O encaminhamento para se os dados do assento forem desconhecidos ou não houver assento premium elegível. Atualize os dados da conta primeiro.",
+        "unavailable": "Indisponível; desmarque esta conta",
+        "selectRequired": "Selecione pelo menos uma conta."
+      },
       "inspection": {
         "internalScope": "Esta é uma solicitação do cliente interno. Verifique o pool de contas do serviço e o vínculo da instância; ela não corresponde a uma Key de cliente público.",
         "keyUnavailable": "A Key do cliente desta solicitação não existe ou foi excluída. Verifique as Keys atuais e o pool de contas.",
