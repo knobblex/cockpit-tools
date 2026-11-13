@@ -93,6 +93,7 @@ fn report(
 ) -> native_contract::RequestReport {
     native_contract::RequestReport {
         upstream_error_code: None,
+        peer_ip: None,
         transient_rate_limit: false,
         official_access_fingerprint: None,
         official_authorization_revision: None,

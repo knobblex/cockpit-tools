@@ -1,3 +1,5 @@
+import { CodexClaudeCodeSettings } from "../components/codex/CodexClaudeCodeSettings";
+import { appendClaudeCodeModelAliases } from "../utils/codexServiceModelAliases";
 import { ModalErrorMessage } from "../components/ModalErrorMessage";
 import { CodexKeyBudgetEditor, CodexKeyBudgetSummary } from '../components/codex/CodexKeyBudgetEditor';
 import { requestCodexOfficialAuthorizationManagement } from "../utils/codexAccountServiceNavigation";
@@ -10,10 +12,13 @@ import { summarizeAccountPoolHealth } from "../components/codex/codexLocalAccess
 import { CodexServiceMemberAuthorization } from "../components/codex/CodexServiceMemberAuthorization";
 import { CodexServiceEmptyMembers } from "../components/codex/CodexServiceEmptyMembers";
 import { CodexApiRequestLogs } from "./CodexApiRequestLogs";
+import { CodexKeyReasoningLimitEditor } from "../components/codex/CodexKeyReasoningLimitEditor";
+import { CodexKeyModelAllowlistEditor } from "../components/codex/CodexKeyModelAllowlistEditor";
 import { useMemo, useState } from "react";
+import { CodexReceiveTimeoutField } from "../components/codex/CodexReceiveTimeoutField";
 import { CodexOverloadRetrySetting } from "../components/codex/CodexOverloadRetrySetting";
 import { CodexOverloadHistory, useCodexOverloadCounts } from "./CodexOverloadHistory";
-import { isCodexChatgptPlanAccount } from "../types/codex";
+import { isCodexApiKeyAccount, isCodexChatgptPlanAccount } from "../types/codex";
 import { formatCodexGatewayModeError } from "../utils/codexGatewayError";
 import { CodexSessionIdentityMappingControl } from "../components/codex/CodexSessionIdentityMappingControl";
 import { CodexSpeedControl } from "../components/codex/CodexSpeedControl";
@@ -29,6 +34,7 @@ import { isCodexApiKeyScopeAccountActive, selectCodexApiKeyScopeAccounts } from 
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
 import { formatCodexQuotaPoolPlanLabel, formatCodexQuotaPoolPercent, formatCodexQuotaPoolWindowLabel } from "../utils/codexQuotaPool";
+import { CodexServiceProviderQuotaRows } from "../components/codex/CodexServiceProviderQuotaRows";
 import { CODEX_LOCAL_ACCESS_STATUS_KEYS, resolveCodexLocalAccessRuntimeStatus } from "../utils/codexLocalAccessStatus";
 import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
 import { CodexLocalAccessModal } from "../components/CodexLocalAccessModal";
@@ -259,7 +265,9 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     testDialogError,
     testDialogOpen,
     testDialogRunning,
+    testModelIds,
     timeoutDrafts,
+    receiveTimeoutError,
     timeoutPresetNameDraft,
     timeoutPresetOptions,
     timeoutsError,
@@ -287,6 +295,9 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     planGrants.accounts, planGrants.displaySourceIds), [selectedStatsWindow?.accounts, accounts, planGrants.accounts, planGrants.displaySourceIds]);
   const displayPoolHealth = summarizeAccountPoolHealth(localAccessAccounts, memberIds, state);
   const busy = controllerBusy;
+  const claudeCodeAliasDraft = activeTab === "models" && collection?.accountIds.length
+    ? appendClaudeCodeModelAliases(modelAliasesText, modelIds)
+    : modelAliasesText;
   const lanBaseUrl = state?.lanBaseUrl;
   const localAccessStatus = resolveCodexLocalAccessRuntimeStatus(collection, state);
   const keyRecoveryRequired = isCodexGatewayKeyRecoveryError(state?.lastError);
@@ -830,6 +841,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     </span>
                   ))
                 )}
+                <CodexServiceProviderQuotaRows accounts={memberAccounts} t={t} />
               </div>
             </section>
 
@@ -876,6 +888,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                       </div>
                       <code>{item.value}</code>
                       <small>{item.note}</small>
+                      {item.id === "anthropic" && <CodexClaudeCodeSettings collection={collection} />}
                     </div>
                   );
                 })}
@@ -1031,10 +1044,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                           className="folder-icon-btn"
                           onClick={() => void handleRotateApiKey(apiKey.id)}
                           disabled={busy}
-                          title={t(
-                            "codex.localAccess.apiKeyRotate",
-                            "Rotate Key",
-                          )}
+                          title={t("codex.localAccess.rotateKey")}
                         >
                           <RefreshCw size={14} />
                         </button>
@@ -1507,31 +1517,25 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                               disabled={busy}
                             />
                           </label>
-                          <label>
-                            <span>
-                              {t(
-                                "codex.apiService.keys.allowedModels",
-                                "允许模型",
-                              )}
-                            </span>
-                            <textarea
-                              value={policyDraft.allowedModels}
-                              onChange={(event) =>
-                                setApiKeyPolicyDrafts((drafts) => ({
-                                  ...drafts,
-                                  [apiKey.id]: {
-                                    ...(drafts[apiKey.id] ?? policyDraft),
-                                    allowedModels: event.target.value,
-                                  },
-                                }))
-                              }
-                              placeholder={t(
-                                "codex.apiService.keys.allowedModelsPlaceholder",
-                                "留空允许全部；每行一个模型或通配符",
-                              )}
-                              disabled={busy}
-                            />
-                          </label>
+                          <CodexKeyReasoningLimitEditor
+                            value={policyDraft.maxReasoningEffort}
+                            disabled={busy}
+                            onChange={(maxReasoningEffort) => setApiKeyPolicyDrafts((drafts) => ({
+                              ...drafts,
+                              [apiKey.id]: { ...(drafts[apiKey.id] ?? policyDraft), maxReasoningEffort },
+                            }))}
+                            t={t}
+                          />
+                          <CodexKeyModelAllowlistEditor
+                            value={policyDraft.allowedModels}
+                            modelIds={modelIds}
+                            onChange={(allowedModels) => setApiKeyPolicyDrafts((drafts) => ({
+                              ...drafts,
+                              [apiKey.id]: { ...(drafts[apiKey.id] ?? policyDraft), allowedModels },
+                            }))}
+                            disabled={busy}
+                            t={t}
+                          />
                           <label>
                             <span>
                               {t(
@@ -2092,15 +2096,25 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               <section className="codex-api-service-panel">
                 <div className="codex-api-service-panel-head">
                   <h2>{t("codex.apiService.models.rulesTitle", "模型规则")}</h2>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => void handleSaveModelRules()}
-                    disabled={busy || !collection}
-                  >
-                    <Check size={14} />
-                    {t("codex.apiService.models.saveRules", "保存规则")}
-                  </button>
+                  <div className="codex-api-service-head-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setModelAliasesText((draft) => appendClaudeCodeModelAliases(draft, modelIds))}
+                      disabled={busy || claudeCodeAliasDraft === modelAliasesText}
+                    >
+                      {t("codex.apiService.models.claudeCodePreset")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => void handleSaveModelRules()}
+                      disabled={busy || !collection}
+                    >
+                      <Check size={14} />
+                      {t("codex.apiService.models.saveRules", "保存规则")}
+                    </button>
+                  </div>
                 </div>
                 <div className="codex-api-service-policy-grid model-rules">
                   <label>
@@ -2492,6 +2506,17 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                 </div>
               </section>
               <section className="codex-api-service-timeout-section">
+                <div className="codex-api-service-policy-grid">
+                  <CodexReceiveTimeoutField
+                    label={t("codex.apiService.timeouts.requestBody")}
+                    description={t("codex.apiService.timeouts.requestBodyHelp")}
+                    value={timeoutDrafts.legacyRequestReadTimeoutMs}
+                    error={receiveTimeoutError?.field === "legacyRequestReadTimeoutMs" ? receiveTimeoutError : null}
+                    onChange={(value) => updateTimeoutDraft("legacyRequestReadTimeoutMs", value)}
+                  />
+                </div>
+              </section>
+              <section className="codex-api-service-timeout-section">
                 <h3>
                   {t("codex.apiService.timeouts.sidecarTitle", "流式超时")}
                 </h3>
@@ -2626,10 +2651,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               </section>
               <section className="codex-api-service-timeout-section">
                 <h3>
-                  {t(
-                    "codex.apiService.timeouts.retryTitle",
-                    "发送与账号重试",
-                  )}
+                  {t("codex.apiService.timeouts.retryTitle")}
                 </h3>
                 <div className="codex-api-service-policy-grid">
                   <label>
@@ -2802,6 +2824,13 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                       }
                     />
                   </label>
+                  <CodexReceiveTimeoutField
+                    label={t("codex.apiService.timeouts.websocketFragment")}
+                    description={t("codex.apiService.timeouts.websocketFragmentHelp")}
+                    value={timeoutDrafts.websocketFragmentTimeoutMs}
+                    error={receiveTimeoutError?.field === "websocketFragmentTimeoutMs" ? receiveTimeoutError : null}
+                    onChange={(value) => updateTimeoutDraft("websocketFragmentTimeoutMs", value)}
+                  />
                   <label>
                     <span>
                       {t("codex.apiService.timeouts.websocketIdle", "空闲超时")}
@@ -3081,18 +3110,10 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               </button>
             </div>
             <div className="modal-body codex-api-service-pricing-body">
-              {accountModelMappingError && (
-                <div className="codex-api-service-message error">
-                  <CircleAlert size={15} />
-                  <span>{accountModelMappingError}</span>
-                </div>
-              )}
+              <ModalErrorMessage message={accountModelMappingError} className="codex-api-service-message error" />
               {mappingMemberAccounts.length === 0 ? (
                 <div className="codex-api-service-empty">
-                  {t(
-                    "codex.apiService.accountModelMappings.empty",
-                    "当前成员里没有可映射的 API Key 账号",
-                  )}
+                  {t("codex.apiService.accountModelMappings.empty")}
                 </div>
               ) : (
                 mappingMemberAccounts.map((account) => {
@@ -3110,7 +3131,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                           {maskAccountText(presentation.displayName)}
                         </strong>
                         <div className="codex-api-service-head-actions">
-                          <button
+                          {isCodexApiKeyAccount(account) && <button
                             type="button"
                             className="btn btn-secondary btn-sm"
                             onClick={() =>
@@ -3122,7 +3143,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                               "codex.apiService.accountModelMappings.fillDeepSeek",
                               "填入 DeepSeek",
                             )}
-                          </button>
+                          </button>}
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
@@ -3191,7 +3212,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                             <label>
                               <span>
                                 {t(
-                                  "codex.api.modelCatalog.contextWindow",
+                                  "codex.experimentalModelCatalog.models.contextWindow",
                                   "上下文窗口",
                                 )}
                               </span>
@@ -3205,10 +3226,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                                     event.target.value,
                                   )
                                 }
-                                placeholder={t(
-                                  "codex.api.modelCatalog.contextWindowPlaceholder",
-                                  "留空=默认",
-                                )}
+                                placeholder={t("codex.experimentalModelCatalog.models.contextDefaultShort")}
                                 inputMode="numeric"
                                 disabled={busy}
                               />
@@ -3666,16 +3684,12 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                   </span>
                 </h3>
                 <p>
-                  {t(
-                    "codex.localAccess.testDialogDesc",
-                    "像游乐场一样通过当前 API 服务发起真实对话，便于检查模型、账号路由和上游响应。",
-                  )}
+                  {t("codex.localAccess.testDialogDesc")}
                 </p>
               </div>
               <button
                 className="modal-close codex-local-access-test-dialog-close"
                 onClick={handleCloseTestDialog}
-                disabled={testDialogRunning}
                 aria-label={t("common.close")}
               >
                 <X size={18} />
@@ -3688,12 +3702,12 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                   <span>{t("codex.localAccess.testChatModel", "模型")}</span>
                   <SingleSelectDropdown
                     value={selectedModelId}
-                    options={modelIds.map((modelId) => ({
+                    options={testModelIds.map((modelId) => ({
                       value: modelId,
                       label: modelId,
                     }))}
                     onChange={setSelectedModelId}
-                    disabled={modelIds.length === 0 || testDialogRunning}
+                    disabled={testModelIds.length === 0 || testDialogRunning}
                     ariaLabel={t("codex.localAccess.testChatModel", "模型")}
                     placeholder={t(
                       "codex.localAccess.modelIdPlaceholder",
@@ -3719,10 +3733,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               >
                 {testChatMessages.length === 0 ? (
                   <div className="codex-local-access-test-chat-empty">
-                    {t(
-                      "codex.localAccess.testChatEmpty",
-                      "输入一条消息后，会通过当前 API 服务发起真实对话。",
-                    )}
+                    {t("codex.localAccess.testChatEmpty")}
                   </div>
                 ) : (
                   testChatMessages.map((message) => (
@@ -3738,7 +3749,9 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                             {message.failureTitle}
                           </strong>
                         )}
-                        <p>{message.content}</p>
+                        {message.imageDataUrl
+                          ? <img src={message.imageDataUrl} alt={t("codex.localAccess.testOutputTitle")} />
+                          : <p>{message.content}</p>}
                         {message.failureDetail && (
                           <span className="codex-local-access-test-chat-meta">
                             {message.failureDetail}
@@ -3813,7 +3826,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               <button
                 className="btn btn-secondary"
                 onClick={handleCloseTestDialog}
-                disabled={testDialogRunning}
               >
                 {t("common.close")}
               </button>

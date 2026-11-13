@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { PACKAGE_CODE } from '../../types/codebuddy-suite.ts';
@@ -11,6 +12,18 @@ import {
 } from './parser.ts';
 
 const EXPIRE_MS = 1_800_000_000_000;
+
+// Group labels now come from the shared i18n keys (`common.shared.quotaCategories.*`),
+// so resolve them the way the app does instead of relying on inline defaults.
+const zhCN = JSON.parse(readFileSync(new URL('../../locales/zh-CN.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+
+function translateZhCN(key: string, defaultValue?: string): string {
+  const value = key.split('.').reduce<unknown>(
+    (node, part) => (node && typeof node === 'object' ? (node as Record<string, unknown>)[part] : undefined),
+    zhCN,
+  );
+  return typeof value === 'string' ? value : (defaultValue ?? '');
+}
 
 function account(quotaRaw: unknown): MinimaxCodeAccount {
   return {
@@ -118,7 +131,7 @@ test('lands each credit type in a labelled group instead of 其他', () => {
       ],
       total_count: 2,
     }),
-    (_key, defaultValue) => defaultValue ?? '',
+    (_key, defaultValue) => translateZhCN(_key, defaultValue),
   );
 
   const labels = groups.filter((group) => group.visible).map((group) => group.label);

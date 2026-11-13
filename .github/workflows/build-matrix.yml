@@ -27,6 +27,9 @@ concurrency:
   group: build-matrix-${{ github.workflow }}-${{ inputs.source_ref || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   preflight-locales:
     name: "🔍 Preflight: Check Locales"
