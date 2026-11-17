@@ -404,4 +404,4 @@ if (require.main === module) {
   finalizeFork(parseArgs(process.argv.slice(2))).catch(error => { console.error(error.message); process.exitCode = 1; });
 }
 module.exports = { finalizeFork, validateDraft, validateProvenance, verifyChecksums, writeChecksums, allowedName, parseArgs,
-  assertTag, assertNewerRelease, validateSignedResult, findReleaseByTag };
+  assertTag, assertSource, assertNewerRelease, validateSignedResult, findReleaseByTag, verifyUpdater };

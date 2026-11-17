@@ -273,7 +273,85 @@ jobs:
           TAG: ${{ needs.inspect.outputs.tag }}
         run: |
           {
-            echo '## Apple signing complete; release remains a draft'
+            echo '## Apple signing complete'
             echo "Release: $TAG"
-            echo 'Review the signed assets and notarization records before publishing the draft.'
+            echo 'Publishing the verified draft in the next job.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: [inspect, sign-draft]
+    if: >-
+      needs.inspect.result == 'success' && needs.inspect.outputs.found == 'true' &&
+      needs.sign-draft.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Same group as sign-draft so two runs can never publish the same tag at once.
+    concurrency:
+      group: fork-updater-release
+      cancel-in-progress: false
+    # Protection rules on this environment (required reviewers) turn the last
+    # step into a manual gate; with no rules the verified draft is published
+    # unattended. Either way nothing is published unless signing succeeded.
+    environment: fork-release-publish
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout the verified controller, never the candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.inspect.outputs.controller }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify controller is in trusted main history
+        shell: bash
+        env:
+          CONTROLLER_SHA: ${{ needs.inspect.outputs.controller }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CONTROLLER_SHA"
+          git merge-base --is-ancestor "$CONTROLLER_SHA" refs/remotes/origin/main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install version manifest verification tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends minisign
+
+      - name: Publish the signed draft after re-verifying its assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.inspect.outputs.tag }}
+          SOURCE_SHA: ${{ needs.inspect.outputs.source }}
+          CONTROLLER_SHA: ${{ needs.inspect.outputs.controller }}
+          TRIGGER_RUN_ID: ${{ needs.inspect.outputs.run_id }}
+          TRIGGER_RUN_ATTEMPT: ${{ needs.inspect.outputs.run_attempt }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          node scripts/release/publish_signed_draft.cjs \
+            --tag "$TAG" --source-sha "$SOURCE_SHA" \
+            --work-dir "$RUNNER_TEMP/fork-publish" \
+            --identity "$APPLE_SIGNING_IDENTITY" --team "$APPLE_TEAM_ID" \
+            --expected-run-id "$TRIGGER_RUN_ID" --expected-run-attempt "$TRIGGER_RUN_ATTEMPT" \
+            --expected-controller-sha "$CONTROLLER_SHA"
+
+      - name: Summarize the published release
+        if: success()
+        shell: bash
+        env:
+          TAG: ${{ needs.inspect.outputs.tag }}
+        run: |
+          {
+            echo '## Release published'
+            echo "https://github.com/knobblex/cockpit-tools/releases/tag/$TAG"
           } >> "$GITHUB_STEP_SUMMARY"
