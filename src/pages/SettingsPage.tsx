@@ -28,6 +28,11 @@ import {
   type AutoSwitchScopeAccount,
 } from '../components/AutoSwitchAccountScopeSelector';
 import {
+  SettingsDropdown,
+  SettingsRefreshPresetDropdown,
+  SettingsThresholdPresetDropdown,
+} from './settings/SettingsPresetDropdowns';
+import {
   buildAccountTierCounts,
   buildAccountTierFilterOptions,
 } from '../utils/accountFilters';
@@ -39,7 +44,8 @@ import { applyReducedMotion } from '../utils/reducedMotion';
 import {
   setClaudeQuotaDisplayRemainingEnabled,
 } from '../utils/claudeQuotaDisplayPreference';
-import { getSubscriptionTier } from '../utils/account';
+import { getAntigravityTierBadge, getSubscriptionTier } from '../utils/account';
+import { CodexAccountPlanBadge } from '../components/codex/CodexAccountPlanBadge';
 import type { Account } from '../types/account';
 import type { CodexAccount } from '../types/codex';
 import {
@@ -254,6 +260,9 @@ interface GeneralConfig {
   antigravity_dual_switch_no_restart_enabled: boolean;
   auto_switch_enabled: boolean;
   auto_switch_threshold: number;
+  auto_switch_window_thresholds_enabled?: boolean;
+  auto_switch_five_hour_threshold?: number;
+  auto_switch_weekly_threshold?: number;
   auto_switch_credits_enabled?: boolean;
   auto_switch_credits_threshold?: number;
   auto_switch_account_scope_mode?: string;
@@ -345,6 +354,7 @@ const FALLBACK_PLATFORM_SETTINGS_ORDER: Record<PlatformId, number> = {
   trae_cn: 16,
   trae_solo_cn: 17,
   workbuddy: 18,
+  workbuddy_ai: 22,
   zed: 19,
   minimaxcode: 20,
 };
@@ -705,6 +715,9 @@ export function useSettingsPageController() {
   const [antigravityDualSwitchNoRestartEnabled, setAntigravityDualSwitchNoRestartEnabled] = useState(false);
   const [autoSwitchEnabled, setAutoSwitchEnabled] = useState(false);
   const [autoSwitchThreshold, setAutoSwitchThreshold] = useState('20');
+  const [agWindowThresholdsEnabled, setAgWindowThresholdsEnabled] = useState(false);
+  const [agFiveHourThreshold, setAgFiveHourThreshold] = useState('5');
+  const [agWeeklyThreshold, setAgWeeklyThreshold] = useState('5');
   const [autoSwitchCreditsEnabled, setAutoSwitchCreditsEnabled] = useState(false);
   const [autoSwitchCreditsThreshold, setAutoSwitchCreditsThreshold] = useState('5');
   const [autoSwitchAccountScopeMode, setAutoSwitchAccountScopeMode] =
@@ -807,9 +820,11 @@ export function useSettingsPageController() {
             : disabledReason === 'tos_violation'
               ? 'TOS_VIOLATION'
               : getSubscriptionTier(account.quota);
+        const badge = getAntigravityTierBadge(account.quota);
         return {
           id: account.id,
           label: account.email,
+          badge: <span className={`tier-badge ${badge.className}`}>{badge.label}</span>,
           searchableText: account.email,
           tags: account.tags || [],
           type,
@@ -822,6 +837,7 @@ export function useSettingsPageController() {
       codexAccounts.map((account) => ({
         id: account.id,
         label: resolveCodexAccountDisplayName(account, t("common.apiKeyAccount")),
+        badge: <CodexAccountPlanBadge account={account} />,
         searchableText: [resolveCodexAccountDisplayName(account, t("common.apiKeyAccount")), account.email, account.api_base_url].join(" "),
         tags: account.tags || [],
       })),
@@ -1202,6 +1218,9 @@ export function useSettingsPageController() {
       auto_switch_threshold: Number.isNaN(parsedAutoSwitchThreshold)
         ? 20
         : parsedAutoSwitchThreshold,
+      auto_switch_window_thresholds_enabled: agWindowThresholdsEnabled,
+      auto_switch_five_hour_threshold: Number(normalizeNumberInput(agFiveHourThreshold || '5', 0, 100)),
+      auto_switch_weekly_threshold: Number(normalizeNumberInput(agWeeklyThreshold || '5', 0, 100)),
       auto_switch_credits_enabled: autoSwitchCreditsEnabled,
       auto_switch_credits_threshold: Number.isNaN(parsedAutoSwitchCreditsThreshold)
         ? 5
@@ -1444,6 +1463,9 @@ export function useSettingsPageController() {
     antigravityDualSwitchNoRestartEnabled,
     autoSwitchEnabled,
     autoSwitchThreshold,
+    agWindowThresholdsEnabled,
+    agFiveHourThreshold,
+    agWeeklyThreshold,
     autoSwitchCreditsEnabled,
     autoSwitchCreditsThreshold,
     autoSwitchAccountScopeMode,
@@ -1800,6 +1822,9 @@ export function useSettingsPageController() {
       );
       setAutoSwitchEnabled(config.auto_switch_enabled ?? false);
       setAutoSwitchThreshold(String(config.auto_switch_threshold ?? 20));
+      setAgWindowThresholdsEnabled(config.auto_switch_window_thresholds_enabled ?? false);
+      setAgFiveHourThreshold(String(config.auto_switch_five_hour_threshold ?? 5));
+      setAgWeeklyThreshold(String(config.auto_switch_weekly_threshold ?? 5));
       setAutoSwitchCreditsEnabled(config.auto_switch_credits_enabled ?? false);
       setAutoSwitchCreditsThreshold(String(config.auto_switch_credits_threshold ?? 5));
       setAutoSwitchAccountScopeMode(
@@ -2509,15 +2534,14 @@ export function useSettingsPageController() {
                 <span className="settings-input-unit">{t('settings.general.minutes')}</span>
               </div>
             ) : (
-              <select
-                className="settings-select"
-                style={{ minWidth: '120px', width: 'auto' }}
+              <SettingsDropdown
                 value={displayValue}
-                onChange={(event) => {
+                ariaLabel={t('settings.general.currentAccountRefreshTitle')}
+                disabled={!currentRefreshAvailable}
+                onChange={(nextValue) => {
                   if (!currentRefreshAvailable) {
                     return;
                   }
-                  const nextValue = event.target.value;
                   if (nextValue === 'custom') {
                     setCurrentAccountRefreshCustomModeValue(platform, true);
                     setCurrentAccountRefreshValue(
@@ -2530,23 +2554,21 @@ export function useSettingsPageController() {
                   setCurrentAccountRefreshCustomModeValue(platform, false);
                   setCurrentAccountRefreshValue(platform, nextValue);
                 }}
-                disabled={!currentRefreshAvailable}
-              >
-                {!currentRefreshAvailable && (
-                  <option value="-1">{t('settings.general.autoRefreshDisabled')}</option>
-                )}
-                {!isPreset && (
-                  <option value={value}>
-                    {value} {t('settings.general.minutes')}
-                  </option>
-                )}
-                <option value="1">1 {t('settings.general.minutes')}</option>
-                <option value="2">2 {t('settings.general.minutes')}</option>
-                <option value="5">5 {t('settings.general.minutes')}</option>
-                <option value="10">10 {t('settings.general.minutes')}</option>
-                <option value="15">15 {t('settings.general.minutes')}</option>
-                <option value="custom">{t('settings.general.autoRefreshCustom')}</option>
-              </select>
+                options={[
+                  ...(!currentRefreshAvailable
+                    ? [{ value: '-1', label: t('settings.general.autoRefreshDisabled') }]
+                    : []),
+                  ...(!isPreset
+                    ? [{ value, label: `${value} ${t('settings.general.minutes')}` }]
+                    : []),
+                  { value: '1', label: `1 ${t('settings.general.minutes')}` },
+                  { value: '2', label: `2 ${t('settings.general.minutes')}` },
+                  { value: '5', label: `5 ${t('settings.general.minutes')}` },
+                  { value: '10', label: `10 ${t('settings.general.minutes')}` },
+                  { value: '15', label: `15 ${t('settings.general.minutes')}` },
+                  { value: 'custom', label: t('settings.general.autoRefreshCustom') },
+                ]}
+              />
             )}
           </div>
         </div>
@@ -2753,32 +2775,30 @@ export function useSettingsPageController() {
                         <span className="settings-input-unit">{t('settings.general.minutes')}</span>
                       </div>
                     ) : (
-                      <select
-                        className="settings-select"
-                        style={{ minWidth: '100px', width: 'auto', fontSize: '12px' }}
+                      <SettingsDropdown
+                        className="settings-dropdown--compact"
                         value={selectValue}
-                        onChange={(e) =>
-                          handleAccountOverrideChange(platform, account.email, e.target.value)
+                        ariaLabel={account.email}
+                        onChange={(nextValue) =>
+                          handleAccountOverrideChange(platform, account.email, nextValue)
                         }
-                      >
-                        <option value="inherit">
-                          {t('settings.general.accountLevelRefreshInherit')}
-                        </option>
-                        <option value="-1">
-                          {t('settings.general.autoRefreshDisabled', '禁用')}
-                        </option>
-                        <option value="1">1 {t('settings.general.minutes')}</option>
-                        <option value="2">2 {t('settings.general.minutes')}</option>
-                        <option value="5">5 {t('settings.general.minutes')}</option>
-                        <option value="10">10 {t('settings.general.minutes')}</option>
-                        <option value="15">15 {t('settings.general.minutes')}</option>
-                        {!isPreset && overrideValue !== undefined && overrideValue > 0 && (
-                          <option value={String(overrideValue)}>
-                            {overrideValue} {t('settings.general.minutes')}
-                          </option>
-                        )}
-                        <option value="custom">{t('settings.general.autoRefreshCustom', '自定义')}</option>
-                      </select>
+                        options={[
+                          { value: 'inherit', label: t('settings.general.accountLevelRefreshInherit') },
+                          { value: '-1', label: t('settings.general.autoRefreshDisabled', '禁用') },
+                          { value: '1', label: `1 ${t('settings.general.minutes')}` },
+                          { value: '2', label: `2 ${t('settings.general.minutes')}` },
+                          { value: '5', label: `5 ${t('settings.general.minutes')}` },
+                          { value: '10', label: `10 ${t('settings.general.minutes')}` },
+                          { value: '15', label: `15 ${t('settings.general.minutes')}` },
+                          ...(!isPreset && overrideValue !== undefined && overrideValue > 0
+                            ? [{
+                                value: String(overrideValue),
+                                label: `${overrideValue} ${t('settings.general.minutes')}`,
+                              }]
+                            : []),
+                          { value: 'custom', label: t('settings.general.autoRefreshCustom', '自定义') },
+                        ]}
+                      />
                     )}
                   </div>
                 );
@@ -2839,33 +2859,13 @@ export function useSettingsPageController() {
               <span className="settings-input-unit">{t('settings.general.minutes')}</span>
             </div>
           ) : (
-            <select
-              className="settings-select"
-              style={{ minWidth: '120px', width: 'auto' }}
+            <SettingsRefreshPresetDropdown
               value={value}
-              onChange={(event) => {
-                const nextValue = event.target.value;
-                if (nextValue === 'custom') {
-                  setCustomMode(true);
-                  setValue(value !== '-1' ? value : '1');
-                  return;
-                }
-                setCustomMode(false);
-                setValue(nextValue);
-              }}
-            >
-              {!isPreset && (
-                <option value={value}>
-                  {value} {t('settings.general.minutes')}
-                </option>
-              )}
-              <option value="-1">{t('settings.general.autoRefreshDisabled')}</option>
-              <option value="2">2 {t('settings.general.minutes')}</option>
-              <option value="5">5 {t('settings.general.minutes')}</option>
-              <option value="10">10 {t('settings.general.minutes')}</option>
-              <option value="15">15 {t('settings.general.minutes')}</option>
-              <option value="custom">{t('settings.general.autoRefreshCustom')}</option>
-            </select>
+              isPreset={isPreset}
+              setValue={setValue}
+              setCustomMode={setCustomMode}
+              ariaLabel={title}
+            />
           )}
         </div>
       </div>
@@ -2945,27 +2945,13 @@ export function useSettingsPageController() {
                 <span className="settings-input-unit">%</span>
               </div>
             ) : (
-              <select
-                className="settings-select"
+              <SettingsThresholdPresetDropdown
                 value={threshold}
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  if (nextValue === 'custom') {
-                    setCustomMode(true);
-                    setThreshold(threshold || '20');
-                    return;
-                  }
-                  setCustomMode(false);
-                  setThreshold(nextValue);
-                }}
-              >
-                {!isPreset && <option value={threshold}>{threshold}%</option>}
-                <option value="0">0%</option>
-                <option value="20">20%</option>
-                <option value="40">40%</option>
-                <option value="60">60%</option>
-                <option value="custom">{t('settings.general.autoRefreshCustom')}</option>
-              </select>
+                isPreset={isPreset}
+                setValue={setThreshold}
+                setCustomMode={setCustomMode}
+                ariaLabel={t('quickSettings.quotaAlert.threshold', '预警阈值')}
+              />
             )}
           </div>
         </div>
@@ -3285,6 +3271,9 @@ export function useSettingsPageController() {
     autoSwitchEnabled,
     autoSwitchSelectedAccountIds,
     autoSwitchThreshold,
+    agWindowThresholdsEnabled,
+    agFiveHourThreshold,
+    agWeeklyThreshold,
     autoSwitchThresholdCustomMode,
     autoSwitchThresholdIsPreset,
     claudeAppPath,
@@ -3497,6 +3486,9 @@ export function useSettingsPageController() {
     setAutoSwitchEnabled,
     setAutoSwitchSelectedAccountIds,
     setAutoSwitchThreshold,
+    setAgWindowThresholdsEnabled,
+    setAgFiveHourThreshold,
+    setAgWeeklyThreshold,
     setAutoSwitchThresholdCustomMode,
     setClaudeAppPath,
     setClaudeAutoRefresh,

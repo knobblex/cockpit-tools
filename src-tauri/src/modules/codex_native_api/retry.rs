@@ -294,11 +294,23 @@ async fn send_inner(
         let base_url = endpoint.as_ref().map_or(prepared.route.base_url.as_str(), |endpoint| {
             endpoint.base_url.as_str()
         });
-        if path == "responses"
-            && prepared.route.wire_api == WireApi::Responses
-            && crate::modules::codex_account::is_official_deepseek_base_url(base_url)
-        {
-            super::responses_tool_history::normalize_deepseek_tool_history(&mut body);
+        if path == "responses" && prepared.route.wire_api == WireApi::Responses {
+            let official_deepseek =
+                crate::modules::codex_account::is_official_deepseek_base_url(base_url);
+            if official_deepseek
+                || crate::modules::codex_protocol::is_deepseek_model(&prepared.route.model)
+            {
+                if let Some(effort) = body.pointer_mut("/reasoning/effort") {
+                    if let Some(normalized) = effort.as_str()
+                        .and_then(crate::modules::codex_protocol::normalize_deepseek_reasoning_effort)
+                    {
+                        *effort = Value::String(normalized.into());
+                    }
+                }
+            }
+            if official_deepseek {
+                super::responses_tool_history::normalize_deepseek_tool_history(&mut body);
+            }
         }
         super::opencode_go::apply_session_header(
             base_url, &prepared.caller.id, &prepared.binding, &mut tracker.opencode_go_session, &mut headers,
@@ -339,9 +351,11 @@ async fn send_inner(
         let request = request.map_err(|error| super::diagnostics::transport_failure(
             502, "upstream_request_invalid", "Unable to prepare the upstream request", &error,
         ))?;
-        let (request, plain_request) = super::http_compression::request(
-            state, request, codex_backend && !prepared.route.chatgpt_plan,
-        ).await?;
+        let compress = codex_backend
+            && !prepared.route.chatgpt_plan
+            && !super::http_compression::has_duplicate_inline_images(&body);
+        let (request, plain_request) =
+            super::http_compression::request(state, request, compress).await?;
         if let Err(error) = tracker.check_quota_before_send() {
             let safe_replay = mapping::local_quota_prepared_replay_is_safe(prepared);
             if error.code == "quota_reserved"
@@ -454,6 +468,13 @@ async fn send_inner(
             Ok(Err(error)) => return Err(error),
             Err(error) => {
                 if connect_failed {
+                    // This candidate has no upstream outcome to retain, but its
+                    // failed pool must not be reused by the next client request.
+                    if error.transport_failure_kind().is_some() {
+                        if let Some(identity) = prepared.route.transport_identity.as_deref() {
+                            state.host.invalidate_transport(identity);
+                        }
+                    }
                     // reqwest proves no HTTP request reached the account.
                     // Keep any earlier real failure, but omit this candidate.
                     tracker.discard_unsent_attempt();
@@ -487,6 +508,7 @@ async fn send_inner(
                 let stream_open_failed = streaming && error.code == "upstream_connect_timeout";
                 if stream_open_failed && open_attempts < policy.stream_open_max_attempts.max(1) {
                     open_attempts += 1;
+                    renew_transport_after_failure(state, prepared, tracker, &error).await?;
                     continue;
                 }
                 // Exhausting this route's open budget must not consume network
@@ -500,7 +522,7 @@ async fn send_inner(
                         deadline,
                     )
                     .await?;
-                    renew_transport_after_tls(state, prepared, tracker, &error).await?;
+                    renew_transport_after_failure(state, prepared, tracker, &error).await?;
                     continue;
                 }
                 if (connect_failed || credential_limit_allows(policy, credential_attempts))
@@ -599,7 +621,7 @@ async fn send_inner(
                         deadline,
                     )
                     .await?;
-                    renew_transport_after_tls(state, prepared, tracker, &error).await?;
+                    renew_transport_after_failure(state, prepared, tracker, &error).await?;
                     continue;
                 }
                 Err(error) => return Err(error),
@@ -913,14 +935,14 @@ async fn send_inner(
 }
 
 /// Called only after an existing retry fence/budget permits another attempt.
-/// Do not turn TLS recovery into an authorization refresh or a replay policy.
-pub(super) async fn renew_transport_after_tls(
+/// Do not turn transport recovery into an authorization refresh or a replay policy.
+pub(super) async fn renew_transport_after_failure(
     state: &AppState,
     prepared: &mut Prepared,
     tracker: &mut RequestTracker,
     error: &ServiceError,
 ) -> Result<(), ServiceError> {
-    if !matches!(error.transport_failure, Some(super::contract::TransportFailureKind::TlsDecrypt | super::contract::TransportFailureKind::TlsDecryptHttp2)) {
+    if error.transport_failure_kind().is_none() {
         return Ok(());
     }
     tracker.release_route();

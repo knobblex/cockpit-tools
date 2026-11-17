@@ -1,13 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useEscCloseTopmost } from "../hooks/useEscClose";
 import { Check, ChevronDown } from "lucide-react";
 import "./SingleSelectDropdown.css";
 import { dropdownLayer, dropdownPlacement, type DropdownPlacement } from "../utils/dropdownPlacement";
 
+const ENABLED_OPTION_SELECTOR = '[role="option"]:not(:disabled)';
+
 export interface SingleSelectOption {
   value: string;
   label: string;
+  badge?: ReactNode;
+  disabled?: boolean;
 }
 
 interface SingleSelectDropdownProps {
@@ -47,8 +51,8 @@ export function SingleSelectDropdown({
   useEscCloseTopmost(open, closeMenu, menuRef);
   useEffect(() => {
     if (open && menuStyle) {
-      (menuRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
-        ?? menuRef.current?.querySelector<HTMLElement>('[role="option"]'))?.focus();
+      (menuRef.current?.querySelector<HTMLElement>(`${ENABLED_OPTION_SELECTOR}[aria-selected="true"]`)
+        ?? menuRef.current?.querySelector<HTMLElement>(ENABLED_OPTION_SELECTOR))?.focus();
     }
   }, [open, Boolean(menuStyle)]);
 
@@ -154,6 +158,7 @@ export function SingleSelectDropdown({
         <span className="single-select-dropdown-value" title={currentLabel}>
           {currentLabel}
         </span>
+        {selectedOption?.badge}
         <span className="single-select-dropdown-arrow">
           <ChevronDown size={16} />
         </span>
@@ -179,13 +184,13 @@ export function SingleSelectDropdown({
                 zIndex: menuStyle.zIndex,
               }}
               onKeyDown={(event) => {
-                const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? []);
+                const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>(ENABLED_OPTION_SELECTOR) ?? []);
                 const index = items.indexOf(document.activeElement as HTMLElement);
-                if (event.key === "Tab") { event.preventDefault(); closeMenu(); }
+                if (event.key === "Tab") { event.preventDefault(); closeMenu(); return; }
                 if (!items.length) return;
                 const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
                   : event.key === "ArrowDown" ? (index + 1) % items.length
-                  : event.key === "ArrowUp" ? (index - 1 + items.length) % items.length : -1;
+                  : event.key === "ArrowUp" ? (index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length) : -1;
                 if (next >= 0) { event.preventDefault(); items[next].focus(); }
               }}
               role="listbox"
@@ -198,12 +203,15 @@ export function SingleSelectDropdown({
                     key={option.value}
                     type="button"
                     className={`single-select-dropdown-item${active ? " active" : ""}`}
+                    disabled={option.disabled}
                     onClick={() => {
+                      if (option.disabled) return;
                       onChange(option.value);
                       closeMenu();
                     }}
                     role="option"
                     aria-selected={active}
+                    aria-disabled={option.disabled || undefined}
                   >
                     <span
                       className="single-select-dropdown-item-label"
@@ -211,6 +219,7 @@ export function SingleSelectDropdown({
                     >
                       {option.label}
                     </span>
+                    {option.badge}
                     <span className="single-select-dropdown-item-check">
                       {active ? <Check size={15} /> : null}
                     </span>

@@ -1,7 +1,5 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -18,7 +16,7 @@ use crate::models::{
 use crate::modules;
 
 #[path = "codex_instance_terminal.rs"]
-mod terminal;
+pub(super) mod terminal;
 use terminal::build_codex_terminal_launch_plan;
 
 #[cfg(test)]
@@ -362,6 +360,23 @@ fn read_applied_launch_credential_kind_for_dir(data_dir: &Path) -> Option<String
     launch_credential_kind_for_bind_account_id(&account_id)
 }
 
+// Older automatic launches could store a gateway binding for an otherwise direct account.
+fn effective_provider_bind_account_id(bind_account_id: &str) -> std::borrow::Cow<'_, str> {
+    let Some(account_id) =
+        modules::codex_instance::parse_provider_gateway_bind_account_id(bind_account_id)
+    else {
+        return bind_account_id.into();
+    };
+    if modules::codex_account::load_account(&account_id)
+        .as_ref()
+        .is_some_and(|account| !modules::codex_local_access::account_requires_provider_gateway(account))
+    {
+        account_id.into()
+    } else {
+        bind_account_id.into()
+    }
+}
+
 async fn inject_bound_account_to_profile(
     profile_dir: &Path,
     bind_account_id: &str,
@@ -376,12 +391,11 @@ async fn inject_bound_account_to_profile(
     if let Some(provider_gateway_account_id) =
         modules::codex_instance::parse_provider_gateway_bind_account_id(bind_account_id)
     {
-        modules::codex_local_access::activate_provider_gateway_for_dir(
+        return modules::codex_local_access::activate_provider_gateway_for_dir(
             profile_dir,
             &provider_gateway_account_id,
         )
-        .await?;
-        return Ok(());
+        .await;
     }
 
     modules::codex_local_access::cleanup_provider_gateway_profile_model_overrides(profile_dir)?;
@@ -403,15 +417,16 @@ async fn inject_preflighted_bound_account_to_profile(
         return Ok(());
     }
 
+    let effective_binding = effective_provider_bind_account_id(bind_account_id);
+    let bind_account_id = effective_binding.as_ref();
     if let Some(provider_gateway_account_id) =
         modules::codex_instance::parse_provider_gateway_bind_account_id(bind_account_id)
     {
-        modules::codex_local_access::activate_provider_gateway_for_dir(
+        return modules::codex_local_access::activate_provider_gateway_for_dir(
             profile_dir,
             &provider_gateway_account_id,
         )
-        .await?;
-        return Ok(());
+        .await;
     }
 
     modules::codex_local_access::cleanup_provider_gateway_profile_model_overrides(profile_dir)?;
@@ -448,38 +463,26 @@ async fn ensure_provider_gateway_for_bind_account(
         modules::codex_local_access::stop_provider_gateways_for_profile(profile_dir).await;
         return Ok(());
     }
-    let Some(provider_gateway_account_id) =
-        modules::codex_instance::parse_provider_gateway_bind_account_id(bind_account_id)
-    else {
-        let Some(account) = modules::codex_account::load_account(bind_account_id) else {
-            modules::codex_local_access::stop_provider_gateways_for_profile(profile_dir).await;
-            return Ok(());
-        };
-        if modules::codex_local_access::account_requires_provider_gateway(&account) {
-            modules::codex_local_access::stop_provider_gateways_for_profile(profile_dir).await;
-            return modules::codex_local_access::ensure_provider_gateway_for_dir(
-                profile_dir,
-                bind_account_id,
-            )
-            .await;
-        }
-        if modules::codex_local_access::account_requires_bound_oauth_local_gateway(&account) {
-            modules::codex_local_access::stop_provider_gateways_for_profile(profile_dir).await;
-            return modules::codex_local_access::ensure_bound_oauth_local_gateway_for_dir(
-                profile_dir,
-                bind_account_id,
-            )
-            .await;
+    let provider_gateway_account_id =
+        modules::codex_instance::parse_provider_gateway_bind_account_id(bind_account_id);
+    let account_id = provider_gateway_account_id.as_deref().unwrap_or(bind_account_id);
+    let Some(account) = modules::codex_account::load_account(account_id) else {
+        if provider_gateway_account_id.is_some() {
+            return Err(format!("供应商网关账号不存在: {account_id}"));
         }
         modules::codex_local_access::stop_provider_gateways_for_profile(profile_dir).await;
         return Ok(());
     };
     modules::codex_local_access::stop_provider_gateways_for_profile(profile_dir).await;
-    modules::codex_local_access::ensure_provider_gateway_for_dir(
-        profile_dir,
-        &provider_gateway_account_id,
-    )
-    .await
+    if modules::codex_local_access::account_requires_provider_gateway(&account) {
+        return modules::codex_local_access::ensure_provider_gateway_for_dir(profile_dir, account_id)
+            .await;
+    }
+    if modules::codex_local_access::account_requires_bound_oauth_local_gateway(&account) {
+        return modules::codex_local_access::ensure_bound_oauth_local_gateway_for_dir(profile_dir, account_id)
+            .await;
+    }
+    Ok(())
 }
 
 async fn apply_launch_speed_after_auth(
@@ -708,9 +711,10 @@ async fn apply_bound_account_to_initialized_profile(
             .await?;
         }
         let provider_binding = profile_switch::provider_binding_for_switch(account_id);
-        let projected_binding = provider_binding.as_deref().unwrap_or(account_id);
-        inject_bound_account_to_profile(profile_dir, projected_binding, false).await?;
-        if modules::codex_instance::parse_provider_gateway_bind_account_id(projected_binding).is_none() {
+        let projected_binding =
+            effective_provider_bind_account_id(provider_binding.as_deref().unwrap_or(account_id));
+        inject_bound_account_to_profile(profile_dir, &projected_binding, false).await?;
+        if modules::codex_instance::parse_provider_gateway_bind_account_id(&projected_binding).is_none() {
             ensure_provider_gateway_for_bind_account(profile_dir, bind_account_id, model_routing)
                 .await?;
         }
@@ -868,6 +872,35 @@ mod tests {
             }
             let _ = std::fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[tokio::test]
+    async fn old_automatic_responses_gateway_binding_projects_the_upstream() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let env = TestDataDirGuard::new("codex-automatic-responses-rollback");
+        let profile = env.root.join("profile");
+        let upstream = "https://relay.example.invalid/v1";
+        let mut account = CodexAccount::new_api_key(
+            "relay".into(),
+            "relay@example.invalid".into(),
+            "fixture-key".into(),
+            crate::models::codex::CodexApiProviderMode::Custom,
+            Some(upstream.into()),
+            Some("relay".into()),
+            None,
+            Vec::new(),
+        );
+        account.api_wire_api = Some("responses".into());
+        modules::codex_account::save_account(&account).unwrap();
+        let old_binding = modules::codex_instance::provider_gateway_bind_account_id(&account.id).unwrap();
+        inject_preflighted_bound_account_to_profile(&profile, &old_binding).await.unwrap();
+        assert_eq!(modules::codex_account::configured_provider_base_url(&profile).as_deref(), Some(upstream));
+
+        account.api_instance_access_mode = Some("gateway".into());
+        modules::codex_account::save_account(&account).unwrap();
+        assert_eq!(effective_provider_bind_account_id(&old_binding), old_binding.as_str());
     }
 
     #[tokio::test]
@@ -1589,6 +1622,7 @@ fn build_launch_command_text(
     context: &CodexLaunchContext,
     binary_path: &str,
     node_path: Option<&str>,
+    custom_command: Option<&str>,
 ) -> Result<String, String> {
     let parsed_args = modules::process::parse_extra_args(&context.extra_args);
 
@@ -1607,17 +1641,24 @@ fn build_launch_command_text(
         codex_cmd.push_str("CODEX_HOME=");
         codex_cmd.push_str(&posix_shell_quote(&context.user_data_dir));
         codex_cmd.push(' ');
-        if let Some(node_path) = node_path {
-            codex_cmd.push_str(&posix_shell_quote(node_path));
-            codex_cmd.push(' ');
-        }
-        codex_cmd.push_str(&posix_shell_quote(binary_path));
-
-        for arg in parsed_args {
-            let trimmed = arg.trim();
-            if !trimmed.is_empty() {
+        if let Some(script) = custom_command {
+            if let Some(dir) = Path::new(binary_path).parent().filter(|dir| dir.is_absolute()) {
+                codex_cmd.push_str(&format!(
+                    "PATH={}:\"$PATH\" ",
+                    posix_shell_quote(&dir.to_string_lossy()),
+                ));
+            }
+            codex_cmd.push_str("/bin/sh -c ");
+            codex_cmd.push_str(&posix_shell_quote(script));
+        } else {
+            if let Some(node_path) = node_path {
+                codex_cmd.push_str(&posix_shell_quote(node_path));
                 codex_cmd.push(' ');
-                codex_cmd.push_str(&posix_shell_quote(trimmed));
+            }
+            codex_cmd.push_str(&posix_shell_quote(binary_path));
+            for arg in parsed_args.iter().map(|arg| arg.trim()).filter(|arg| !arg.is_empty()) {
+                codex_cmd.push(' ');
+                codex_cmd.push_str(&posix_shell_quote(arg));
             }
         }
 
@@ -1636,10 +1677,15 @@ fn build_launch_command_text(
         if let Some(ref dir) = context.working_dir {
             if !dir.trim().is_empty() {
                 command_parts.push(format!(
-                    "Set-Location -LiteralPath {}",
-                    powershell_quote(dir)
+                    "Set-Location -LiteralPath {}{}",
+                    powershell_quote(dir),
+                    if custom_command.is_some() { " -ErrorAction Stop" } else { "" },
                 ));
             }
+        }
+
+        if let Some(script) = custom_command {
+            return Ok(terminal::powershell_cli_script(&command_parts, binary_path, script));
         }
 
         let mut codex_cmd = String::new();
@@ -1670,13 +1716,25 @@ fn build_launch_command_text(
 }
 
 fn build_launch_command_preview(context: &CodexLaunchContext) -> Result<String, String> {
-    build_launch_command_text(context, "codex", None)
+    build_launch_command_text(context, "codex", None, None)
 }
 
-fn build_launch_command(context: &CodexLaunchContext) -> Result<String, String> {
+#[cfg(all(test, unix))]
+#[path = "codex_instance_cli_command_tests.rs"]
+mod cli_command_tests;
+
+fn build_launch_command(
+    context: &CodexLaunchContext,
+    custom_command: Option<&str>,
+) -> Result<String, String> {
     sanitize_codex_config_before_launch(Path::new(&context.user_data_dir))?;
     let runtime = modules::codex_wakeup::resolve_cli_runtime()?;
-    build_launch_command_text(context, &runtime.binary_path, runtime.node_path.as_deref())
+    build_launch_command_text(
+        context,
+        &runtime.binary_path,
+        runtime.node_path.as_deref(),
+        custom_command.filter(|value| !value.trim().is_empty()),
+    )
 }
 
 fn resolve_codex_launch_terminal(terminal: Option<String>) -> String {
@@ -2130,7 +2188,11 @@ pub async fn codex_list_sessions_across_instances(
 pub async fn codex_get_session_token_stats_across_instances(
     session_ids: Vec<String>,
 ) -> Result<Vec<modules::codex_session_manager::CodexSessionTokenStats>, String> {
-    modules::codex_session_manager::get_session_token_stats_across_instances(session_ids)
+    tauri::async_runtime::spawn_blocking(move || {
+        modules::codex_session_manager::get_session_token_stats_across_instances(session_ids)
+    })
+    .await
+    .map_err(|error| format!("读取 Codex 会话 Token 用量失败: {error}"))?
 }
 
 #[tauri::command]
@@ -3105,7 +3167,7 @@ async fn codex_start_instance_internal(
         if default_settings.launch_mode == InstanceLaunchMode::Cli {
             let cli_prepare_started = Instant::now();
             let context = resolve_instance_launch_context(DEFAULT_INSTANCE_ID)?;
-            let _ = build_launch_command(&context)?;
+            let _ = build_launch_command(&context, None)?;
             let _ = modules::codex_instance::update_default_pid(None)?;
             modules::logger::log_info(&format!(
                 "[Codex Start] default cli prepare finished: elapsed_ms={}, total_ms={}",
@@ -3413,7 +3475,7 @@ async fn codex_start_instance_internal(
     if instance.launch_mode == InstanceLaunchMode::Cli {
         let cli_prepare_started = Instant::now();
         let context = resolve_instance_launch_context(&instance.id)?;
-        let _ = build_launch_command(&context)?;
+        let _ = build_launch_command(&context, None)?;
         let updated = modules::codex_instance::update_instance_after_cli_prepare(&instance.id)?;
         let initialized = is_profile_initialized(&updated.user_data_dir);
         modules::logger::log_info(&format!(
@@ -3943,90 +4005,37 @@ pub async fn codex_preview_instance_launch_command(
 pub async fn codex_get_instance_launch_command(
     instance_id: String,
     terminal: Option<String>,
+    custom_command: Option<String>,
 ) -> Result<CodexInstanceLaunchInfo, String> {
-    let context = resolve_instance_launch_context(&instance_id)?;
-    let launch_command = build_launch_command(&context)?;
-    let terminal = resolve_codex_launch_terminal(terminal);
-    let terminal_plan = build_codex_terminal_launch_plan(&launch_command, &terminal)?;
-    Ok(CodexInstanceLaunchInfo {
-        instance_id,
-        user_data_dir: context.user_data_dir.clone(),
-        launch_command,
-        terminal_command: terminal_plan.display_command,
-        terminal,
+    tauri::async_runtime::spawn_blocking(move || {
+        let context = resolve_instance_launch_context(&instance_id)?;
+        let launch_command = build_launch_command(&context, custom_command.as_deref())?;
+        let terminal = resolve_codex_launch_terminal(terminal);
+        let terminal_plan = build_codex_terminal_launch_plan(&launch_command, &terminal)?;
+        Ok(CodexInstanceLaunchInfo {
+            instance_id,
+            user_data_dir: context.user_data_dir,
+            launch_command,
+            terminal_command: terminal_plan.display_command,
+            terminal,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
 pub async fn codex_execute_instance_launch_command(
     instance_id: String,
     terminal: Option<String>,
+    custom_command: Option<String>,
 ) -> Result<String, String> {
-    let context = resolve_instance_launch_context(&instance_id)?;
-    let command = build_launch_command(&context)?;
-    let terminal = resolve_codex_launch_terminal(terminal);
-    let plan = build_codex_terminal_launch_plan(&command, &terminal)?;
-
-    #[cfg(target_os = "macos")]
-    {
-        let output = Command::new(&plan.program)
-            .args(&plan.args)
-            .output()
-            .map_err(|e| format!("打开终端失败 ({}): {}", plan.terminal_name, e))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("终端执行失败: {}", stderr.trim()));
-        }
-        return Ok(format!("已在 {} 执行 Codex CLI 命令", plan.terminal_name));
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let child = Command::new(&plan.program)
-            .args(&plan.args)
-            .spawn()
-            .map_err(|e| format!("打开终端失败 ({}): {}", plan.terminal_name, e))?;
-        drop(child);
-        return Ok(format!("已在 {} 执行 Codex CLI 命令", plan.terminal_name));
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let shell_command = format!("{}; exec bash", command);
-        let use_system_terminal = terminal.is_empty() || terminal.eq_ignore_ascii_case("system");
-        let launch_result = Command::new(&plan.program)
-            .args(&plan.args)
-            .spawn()
-            .or_else(|_| {
-                if use_system_terminal {
-                    Command::new("gnome-terminal")
-                        .args(["--", "bash", "-lc", &shell_command])
-                        .spawn()
-                } else {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "指定终端未找到",
-                    ))
-                }
-            })
-            .or_else(|_| {
-                if use_system_terminal {
-                    Command::new("konsole")
-                        .args(["-e", "bash", "-lc", &shell_command])
-                        .spawn()
-                } else {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "指定终端未找到",
-                    ))
-                }
-            })
-            .or_else(|_| Command::new("sh").args(["-lc", &command]).spawn());
-
-        launch_result.map_err(|error| format!("执行 Codex CLI 命令失败: {}", error))?;
-        return Ok(format!("已在 {} 执行 Codex CLI 命令", plan.terminal_name));
-    }
-
-    #[allow(unreachable_code)]
-    Err("Codex CLI 终端执行仅支持 macOS、Windows 和 Linux".to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let context = resolve_instance_launch_context(&instance_id)?;
+        let command = build_launch_command(&context, custom_command.as_deref())?;
+        let terminal = resolve_codex_launch_terminal(terminal);
+        terminal::execute_codex_terminal_command(&command, &terminal)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }

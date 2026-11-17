@@ -619,6 +619,10 @@ impl RequestTracker {
         Ok(())
     }
 
+    pub(super) fn request_quota_refresh(&self) {
+        if let Some(account) = self.quota_candidate() { self.host.request_quota_refresh(account); }
+    }
+
     /// Mark only when a business request is actually about to be sent. A
     /// successful quota check or a WebSocket upgrade does not spend quota.
     pub(super) fn quota_request_started(&self) {
@@ -808,10 +812,11 @@ impl RequestTracker {
             self.capture_upstream_error_code(details);
             self.capture_official_authorization_error(error.status, details);
         }
+        let transport_failure = error.transport_failure_kind();
         let retired = self.transport_identity.as_deref().and_then(|identity| {
-            match error.transport_failure {
+            match transport_failure {
                 Some(super::contract::TransportFailureKind::TlsDecryptHttp2) => Some(self.host.invalidate_http2_transport(identity)),
-                Some(super::contract::TransportFailureKind::TlsDecrypt) => Some(self.host.invalidate_transport(identity)),
+                Some(super::contract::TransportFailureKind::TlsDecrypt | super::contract::TransportFailureKind::Network) => Some(self.host.invalidate_transport(identity)),
                 None => None,
             }
         });
@@ -825,8 +830,11 @@ impl RequestTracker {
             }
             context.failure_phase = Some(phase.to_owned());
             if let Some(attempt) = context.attempts.last_mut().filter(|_| open_attempt) {
-                if error.transport_failure.is_some() {
-                    attempt.transport_error = Some("tls_decrypt".into());
+                if let Some(kind) = transport_failure {
+                    attempt.transport_error = Some(match kind {
+                        super::contract::TransportFailureKind::Network => "network",
+                        _ => "tls_decrypt",
+                    }.into());
                     // Repeated reporting of the same failure must preserve a
                     // successful invalidation rather than overwrite it as false.
                     if let Some(retired) = retired {

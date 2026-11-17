@@ -415,6 +415,9 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         trae_solo_app_scan_roots: user_config.trae_solo_app_scan_roots,
         trae_cn_app_scan_roots: user_config.trae_cn_app_scan_roots,
         trae_solo_cn_app_scan_roots: user_config.trae_solo_cn_app_scan_roots,
+        workbuddy_ai_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.workbuddy_ai_app_path,
+        ),
         workbuddy_app_path: modules::process::normalize_windows_user_facing_path(
             &user_config.workbuddy_app_path,
         ),
@@ -443,6 +446,9 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         auto_switch_threshold: user_config.auto_switch_threshold,
         auto_switch_credits_enabled: user_config.auto_switch_credits_enabled,
         auto_switch_credits_threshold: user_config.auto_switch_credits_threshold,
+        auto_switch_window_thresholds_enabled: user_config.auto_switch_window_thresholds_enabled,
+        auto_switch_five_hour_threshold: user_config.auto_switch_five_hour_threshold,
+        auto_switch_weekly_threshold: user_config.auto_switch_weekly_threshold,
         auto_switch_scope_mode: user_config.auto_switch_scope_mode,
         auto_switch_selected_group_ids: user_config.auto_switch_selected_group_ids,
         auto_switch_account_scope_mode: user_config.auto_switch_account_scope_mode,

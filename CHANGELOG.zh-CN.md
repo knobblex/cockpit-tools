@@ -8,6 +8,97 @@
 
 ---
 
+## [Unreleased]
+
+## [1.4.0] - 2026-11-15
+
+### 修复
+
+- **Codex API 服务**：WebSocket 长会话续接时用更小的分段预载历史，并减少重复上传。遇到额度拦截且有兼容账号可用时可恢复，预载结果未知时不会自动重放。
+- **深色模式可读性**：提高账号分组、搜索提示、标题、订阅和配额标签、Codex 导入错误及 API 统计和计价状态、多开和唤醒状态、中转站密钥输入提示的对比度。
+- **弹框与页面交互**：将中转站密钥删除和 MFA 导入错误提示从浏览器原生弹窗替换为应用内确认弹框与内联错误提示，密钥删除失败时保留弹框并在框内提示；修复部分遮罩误关闭问题与加载图标边框伪影；移除账号子弹框重复的返回关闭按钮；修复 Codex 本地访问成员行和普通平台应用多开列表的横向溢出问题。
+- **Codex 会话备份**：会话修复和历史清理会保留历次备份。
+- 对齐账号配额空态及授权提示中的图标和文字。
+- **Codex 会话修复**：启动前会话维护和手动历史索引修复取消固定时长、记录数和文件大小上限。写入失败时仍会回滚。
+- **Codex 本地项目**：本地项目修复取消记录数、文件大小和处理时长限制，实例启动时也会完成本地项目修复。
+- **Codex API 服务**：「添加至 API 服务」弹框在较矮的窗口中也能滚动查看全部账号和分页，取消与保存按钮始终可见。
+- **Windows 上的 Codex API 服务**：原生网关停止后，子进程不会继续占用服务端口。 [#2850](https://github.com/jlcodes99/cockpit-tools/pull/2850)
+- **Codex API 服务**：选中的用量时间范围页签随当前主题配色。 [#2115](https://github.com/jlcodes99/cockpit-tools/pull/2115)
+- **Antigravity 账号授权**：添加或授权同一账号时可重建缺失的账号文件，并保留原账号 ID。 [#2854](https://github.com/jlcodes99/cockpit-tools/pull/2854)
+- **Codex API 服务**：按套餐排序调度时，将已过期的 OAuth 订阅按免费套餐处理。 [#2174](https://github.com/jlcodes99/cockpit-tools/pull/2174)
+- **Codex API Key**：保存密钥时保留供应商协议和 WebSocket 支持设置。 [#1980](https://github.com/jlcodes99/cockpit-tools/pull/1980)
+- **经典侧栏**：收起时导航图标保持居中，展开时长标签不会挤压图标。 [#2384](https://github.com/jlcodes99/cockpit-tools/pull/2384)
+- **Codex API 服务**：OpenCode 请求携带会话标识且未明确指定身份或续聊时，原生 HTTP 网关可保持同一会话。 [#3046](https://github.com/jlcodes99/cockpit-tools/pull/3046)
+- **Codex API 服务**：检测无响应的网络连接并重新连接，让后续请求可以继续。 [#3106](https://github.com/jlcodes99/cockpit-tools/pull/3106)
+- **Codex SSH**：切号后恢复目标账号的自动连接设置，并刷新匹配的远程会话。 [#3097](https://github.com/jlcodes99/cockpit-tools/pull/3097)
+- **Claude**：正确区分 Pro 和 Max 套餐，并显示对应的额度窗口。 [#3031](https://github.com/jlcodes99/cockpit-tools/pull/3031)
+- **CodeBuddy CN**：在账号摘要中显示剩余积分和资源包到期信息。 [#3023](https://github.com/jlcodes99/cockpit-tools/pull/3023)
+- **Codex 供应商配置**：模板提供默认值时，保留明确设置的模型上下文窗口和压缩阈值。 [#3091](https://github.com/jlcodes99/cockpit-tools/pull/3091)
+- **Codex API 服务**：在受影响的 Codex 路由上，重复内联图片以未压缩方式发送，保留完整请求内容。 [#3084](https://github.com/jlcodes99/cockpit-tools/pull/3084)
+- **Codex 供应商切换**：快捷切换弹框位于最上层且未提交切换时，可按 Escape 关闭。 [#2111](https://github.com/jlcodes99/cockpit-tools/pull/2111)
+- **智谱 Coding Plan**：兼容新版积分额度与旧版 Token 额度响应，显示对应的额度窗口。 [#3126](https://github.com/jlcodes99/cockpit-tools/pull/3126)
+- **Codex API 服务**：菜单栏和托盘汇总 5 小时额度时，排除周额度已耗尽账号的剩余额度。 [#3112](https://github.com/jlcodes99/cockpit-tools/pull/3112)
+- **MiniMax Code**：共用账号的凭据由客户端续期，Cockpit 读取并保存新凭据，避免客户端登录失效。 [#3092](https://github.com/jlcodes99/cockpit-tools/pull/3092)
+- **Codex 会话用量**：汇总、增量统计和单会话 Token 计数均支持压缩会话日志。 [#3079](https://github.com/jlcodes99/cockpit-tools/pull/3079)
+
+### 新增
+
+- **WorkBuddy AI 国际版**：支持浏览器授权、账号导入、自动刷新积分和一键切换桌面客户端账号。
+- **Antigravity**：从账号或多开实例启动时，可选择 Antigravity、Antigravity IDE 或 Antigravity CLI。两个入口共用上次选择的客户端，显示启动路径，并支持补填桌面路径后重试。快捷设置可分别编辑两个桌面客户端的路径。旧版 IDE 尚未初始化时，账号页和多开实例会引导先启动一次，并说明初始化后可切号、绑定账号或使用已绑定账号。桌面客户端可选择对应的实例，CLI 可指定工作目录。
+- **CodeBuddy 和 CodeBuddy CN**：均可从各自的账号总览启动官方 CLI，并在对应版本的「应用多开」中管理 CLI 实例。每个实例保留绑定账号、工作目录和独立配置。CodeBuddy CN 记住上次选择的桌面版或 CLI。
+- **Codex 代理**：可按代理来源设置 DNS 覆写和 IPv6，自定义 DNS 服务器，保存后已绑定代理的新连接会使用新设置。
+- **Codex 供应商额度**：查询 OpenCode Go 的 5 小时、周和月额度，以及兼容 codex-proxy-rs 服务的日、周预算。 [#1938](https://github.com/jlcodes99/cockpit-tools/pull/1938) · [#3019](https://github.com/jlcodes99/cockpit-tools/pull/3019)
+- **供应商预设**：Codex 新增 UberLLM。Codex、Claude Code 和 Claude Desktop 新增 Runcrate。 [#3075](https://github.com/jlcodes99/cockpit-tools/pull/3075) · [#2952](https://github.com/jlcodes99/cockpit-tools/pull/2952)
+- **MiniMax 预设**：Codex、Claude Code 和 Claude Desktop 可选择 MiniMax-M3.1-Flash。 [#2865](https://github.com/jlcodes99/cockpit-tools/pull/2865)
+- **Antigravity 自动切号**：可在通用设置和平台快捷设置中分别设定 5 小时及周额度的切号阈值。 [#3101](https://github.com/jlcodes99/cockpit-tools/pull/3101)
+- **模型探测**：WorkBuddy 和 CodeBuddy CN 支持按账号与模型组合批量探测，逐项查看结果，也可从单个账号卡片发起。 [#3096](https://github.com/jlcodes99/cockpit-tools/pull/3096) · [#3064](https://github.com/jlcodes99/cockpit-tools/pull/3064)
+
+### 变更
+
+- **Codex 重置卡**：可开启「积分优先」。周额度达到阈值后，确认积分不可用才自动用卡；临期规则独立生效。
+- **客户端启动**：桌面版或 CLI 缺少启动路径时，可在当前流程中配置并继续。账号已经切换时只重试启动客户端。WorkBuddy AI 国际版使用独立的桌面启动路径。
+- **平台布局**：支持通过拖拽预览或键盘调整平台、分组和组内条目的顺序。在列表外松手会取消本次拖拽。
+- **CLI 启动**：Codex、Antigravity 和 CodeBuddy 使用更宽的启动弹框和更高的命令区域，集中显示账号、工作目录、终端和自定义命令。Antigravity 记住上次使用的目录，CodeBuddy 按账号或命名实例记忆。
+- **Codex CLI**：从账号页首次启动时，仅继承默认实例的配置，不再复制桌面会话历史。
+- **Antigravity**：Antigravity 和 Antigravity IDE 重启时立即发送关闭信号，确认旧进程退出后继续启动。
+- **Codex 设置**：通用设置和快捷设置都在下一步预测开关旁说明额外 API 用量、重启时机和保持 Cockpit Tools 运行的要求。
+- **界面控件与弹框体验**：将 Codex、应用多开、唤醒测试/任务、悬浮卡片、MFA 及最近使用等页面的原生下拉框与文本排序箭头统一替换为定制下拉组件与矢量图标；为下拉菜单补充焦点恢复与顶层 Esc 关闭逻辑，键盘导航会跳过禁用选项；约束弹框高度并支持内容区滚动与固定底部操作栏，确保矮窗口下按钮始终可达；优化平台布局恢复默认与删除分组的确认提示文案。
+- **双主题与页面布局优化**：完善 Codex 账号卡、Codex API 服务弹框、Aurora 风格账号页、中转站密钥模型标签、唤醒验证筛选徽章、悬浮卡片浅色主题与使用说明悬停态的主题适配；优化侧边栏与仪表盘筛选换行、通用设置与快捷设置控件对齐；将 Codex API 日志次要筛选、Codex 启动预览维护诊断工具及多平台 Token/JSON 导入示例收纳为可折叠区块；统一多平台卡片与表格视图（Antigravity 紧凑模式套餐标识、Qoder/Claude/CodeBuddy 套件列展示与操作按钮、对齐各平台工具栏归属页签）。
+
+### 文档
+
+- 新增韩文 README，并更新巴西葡萄牙语 README 的支持平台列表。 [#2681](https://github.com/jlcodes99/cockpit-tools/pull/2681) · [#2610](https://github.com/jlcodes99/cockpit-tools/pull/2610)
+
+## [1.3.84] - 2026-11-14
+
+### 修复
+
+- **Codex API Key 启动**：恢复第三方 Responses 供应商的默认直连。此前由自动模式接入本地实例网关的账号，下次通过 Cockpit 启动时会恢复使用供应商原始地址。手动选择实例网关和需要协议转换的账号仍可使用网关。
+
+## [1.3.83] - 2026-11-13
+
+### 变更
+
+- **Codex 中的 DeepSeek**：从账号启动、模型供应商实例和 API 服务使用 DeepSeek 原始模型 ID 和统一的思考档位，默认 `max`，保留已保存的有效档位。绑定官方 DeepSeek 的实例继续支持使用旧模型 ID 续聊。
+- **中转站密钥**：保存的密钥支持快捷添加到 Grok CLI，弹框会预填密钥、地址和可用模型。 [#3104](https://github.com/jlcodes99/cockpit-tools/issues/3104)
+- **Codex 额度趋势**：支持自定义日期范围，并汇总期间的 5 小时和周额度消耗，累计消耗以带符号的百分比展示，额度重置不抵扣已消耗额度。明细展示记录时间、剩余额度及变化。历史存储支持设置记录与清理规则、默认账号。新装和升级后均默认仅在额度变化时记录，可手动关闭。账号选择器沿用账号总览的订阅套餐样式。
+- **Antigravity 账号额度**：卡片和列表使用更紧凑的额度布局，悬停重置时间可查看完整信息。
+- **Codex 额度恢复提醒**：通用设置和快捷设置均可查看启用状态、管理 PushPlus Token。
+- **账号选择**：在分组、自动切号、多开、代理设置和 WorkBuddy 模型测试中显示订阅套餐标识，样式与对应平台的账号总览一致。
+- **设置**：Codex 通用设置和各平台快捷设置中的额度阈值、刷新间隔等选项使用统一的下拉控件，Codex 快捷设置中的 API 与代理选项也采用统一行布局。
+
+### 修复
+
+- **Codex API 服务中的 DeepSeek**：修复思考模式下并行工具调用完成后无法继续对话的问题。网关保留整批工具调用，并在批次后发送工具结果。
+- **Grok 额度**：刷新收到空账单时保留上一次有效额度，并显示刷新失败。 [#2819](https://github.com/jlcodes99/cockpit-tools/issues/2819)
+- **Claude CLI**：刷新额度前会采用同一账号在绑定实例中已经续期的凭据，避免使用失效的旧凭据。刷新失败会计入失败数。 [#3105](https://github.com/jlcodes99/cockpit-tools/issues/3105)
+- **Claude 兼容接口**：仅含签名的推理使用隐藏思考块，避免出现空的思考行，同时保留续聊凭据和后续工具调用。 [#3086](https://github.com/jlcodes99/cockpit-tools/issues/3086)
+- **GitHub Copilot 授权**：请求 Copilot Token 被拒绝时，授权弹框显示 GitHub 返回的原因和状态码。 [#3103](https://github.com/jlcodes99/cockpit-tools/issues/3103)
+- **Codex API 服务**：包含内置浏览器标签页记录的会话，可在原账号不可用时凭完整历史切换账号续聊。 [#3099](https://github.com/jlcodes99/cockpit-tools/issues/3099)
+- **Codex API 服务**：原生网关的连接和流空闲超时提示会显示并跳转到对应的文本或生图超时设置。 [#3088](https://github.com/jlcodes99/cockpit-tools/pull/3088)
+- **Codex API 服务**：通过 API 服务启动的实例在首次读取、后台刷新和实时更新额度时，统一向客户端提供可用额度视图，不再因登录的 OAuth 账号订阅额度或混合模式兼容开关拦截提交；真实上游用量及图像额度不变。
+- **弹框**：窗口较矮时，Codex SSH 同步、账号测智确认、实验模型编辑、通知图片预览和自动切号账号选择可滚动。Trae 和 WorkBuddy 自动签到设置在点击遮罩时保持打开。
+
 ## [1.3.813] - 2026-11-12
 
 ### 新增

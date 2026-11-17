@@ -1,10 +1,11 @@
 import { useAccountsOverviewFilterState } from '../hooks/useAccountsOverviewFilterState';
 import { Fragment, useCallback, useEffect, useMemo } from 'react';
 import {
+  ArrowDown,
   ArrowDownWideNarrow,
+  ArrowUp,
   Check,
   ChevronDown,
-  ChevronLeft,
   CircleAlert,
   Copy,
   Database,
@@ -46,6 +47,7 @@ import {
   getZedAccountDisplayEmail,
   getZedEditPredictionsMetrics,
   getZedPlanBadge,
+  getZedPlanTone,
   hasZedQuotaData,
   type ZedAccount,
 } from '../types/zed';
@@ -81,23 +83,6 @@ function parseFiniteNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
-}
-
-function getZedPlanTone(planRaw?: string | null): string {
-  const normalized = (planRaw || '').trim().toLowerCase();
-  if (!normalized) return 'unknown';
-  if (normalized.includes('enterprise') || normalized.includes('team')) return 'enterprise';
-  if (normalized.includes('trial')) return 'trial';
-  if (
-    normalized.includes('pro') ||
-    normalized.includes('plus') ||
-    normalized.includes('ultra') ||
-    normalized.includes('ultimate')
-  ) {
-    return 'pro';
-  }
-  if (normalized.includes('free')) return 'free';
-  return 'unknown';
 }
 
 function getZedStatusTone(status?: string | null): 'normal' | 'warning' | 'forbidden' | 'neutral' {
@@ -1168,7 +1153,7 @@ export function ZedAccountsPage() {
             }
             aria-label={t('common.shared.sort.toggleDirection', '切换排序方向')}
           >
-            {sortDirection === 'desc' ? '⬇' : '⬆'}
+            {sortDirection === 'desc' ? <ArrowDown size={15} /> : <ArrowUp size={15} />}
           </button>
         </div>
 
@@ -1366,7 +1351,6 @@ export function ZedAccountsPage() {
         <div className="modal-overlay">
           <div className="modal-content ghcp-add-modal platform-account-add-modal zed-add-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <button className="btn btn-secondary icon-only" onClick={closeAddModal} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>
               <h2>{t('zed.addModal.title', '添加 Zed 账号')}</h2>
               <button
                 className="modal-close"

@@ -261,6 +261,7 @@ fn native_recorded_failure_cools_account(report: &native_contract::RequestReport
             report.error.as_deref(),
             Some(
                 "upstream_request_scoped"
+                    | "quota_reserved"
                     | "request_scoped"
                     | "connection_lifecycle"
                     | "client_cancelled"
@@ -667,6 +668,17 @@ fn native_model_for_key(
         .iter()
         .find(|alias| alias.alias.eq_ignore_ascii_case(base_model))
         .map(|alias| alias.source_model.as_str())
+        .or_else(|| {
+            // Old Codex threads can still send a GPT-shaped ID to the DeepSeek
+            // instance they were bound to. Shared API service keys keep GPT IDs.
+            let key = key.filter(|key| {
+                matches!(key.account_ids.as_slice(), [id] if key.id == provider_gateway_api_key_id(id))
+            })?;
+            let gateway = key.provider_gateway.as_ref().filter(|gateway| {
+                codex_account::is_official_deepseek_base_url(&gateway.base_url)
+            })?;
+            legacy_deepseek_model_id(base_model, gateway.upstream_models.iter().map(String::as_str))
+        })
         .unwrap_or(base_model);
     if native_excluded(&collection.excluded_models, canonical)
         || key.is_some_and(|key| native_excluded(&key.excluded_models, canonical))
@@ -834,6 +846,13 @@ impl native_contract::Host for NativeHostBridge {
             .filter(|collection| collection.bound_oauth_account_id.as_deref() == Some(account_id))
             .and_then(|collection| collection.bound_oauth_quota_reserve.as_ref());
         check_gateway_quota_before_send(account_id, self.collection_override.is_none(), local)
+    }
+    fn request_quota_refresh(&self, account_id: &str) {
+        let bound = quota_reserve_coordinator().lock().ok()
+            .is_some_and(|runtime| runtime.watched_account.as_deref() == Some(account_id));
+        if bound && self.collection_override.is_none() && crate::get_app_handle().is_some() {
+            trigger_bound_oauth_quota_refresh_in_background("请求发送前复核", Duration::from_secs(1));
+        }
     }
     fn set_session_affinity_enabled(&self, enabled: bool) {
         if self

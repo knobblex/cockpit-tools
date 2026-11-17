@@ -224,6 +224,7 @@ pub struct ImageRoute {
 pub enum TransportFailureKind {
     TlsDecrypt,
     TlsDecryptHttp2,
+    Network,
 }
 
 #[derive(Clone, Debug)]
@@ -247,6 +248,16 @@ pub struct ServiceError {
 }
 
 impl ServiceError {
+    /// These deadline codes are produced by our transport, never copied from
+    /// upstream error text. Retiring a pool grants no permission to replay.
+    pub(crate) fn transport_failure_kind(&self) -> Option<TransportFailureKind> {
+        self.transport_failure.or_else(|| match self.code {
+            "upstream_connect_timeout" | "upstream_idle_timeout" | "upstream_timeout" =>
+                Some(TransportFailureKind::Network),
+            _ => None,
+        })
+    }
+
     pub fn new(status: u16, code: &'static str, message: impl Into<String>) -> Self {
         Self {
             status,
@@ -379,6 +390,8 @@ pub trait Host: Send + Sync + 'static {
     }
     fn quota_request_started(&self, _account_id: &str) {}
     fn check_quota_before_send(&self, _account_id: &str) -> Result<(), ServiceError> { Ok(()) }
+    /// Enqueue a bounded single-flight refresh; never perform I/O synchronously.
+    fn request_quota_refresh(&self, _account_id: &str) {}
     /// A runtime policy notification; must not perform blocking I/O.
     fn set_cooling_disabled(&self, _disabled: bool) {}
     /// Disabling affinity clears only the transient routing preference cache.
