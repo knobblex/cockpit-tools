@@ -5009,9 +5009,11 @@
         "title": "Politique de transfert",
         "all": "Tous les comptes disponibles",
         "premiumOnly": "Sièges premium uniquement",
+        "premiumRotation": "Rotation automatique du siège premium",
         "selectedAccounts": "Comptes sélectionnés",
         "hint": "S’applique aux requêtes de discussion et d’images. Les périmètres des clés, les autorisations des modèles et la protection des quotas restent applicables. Enregistrez pour appliquer le mode choisi.",
         "premiumHint": "Seuls les comptes OAuth locaux avec une identité d’équipe confirmée et une offre prolite sont autorisés. Le transfert s’arrête si les données du siège sont inconnues ou si aucun siège premium n’est éligible. Actualisez d’abord les données du compte.",
+        "rotationHint": "Configurez et activez la rotation ci-dessous. Les requêtes OAuth locales de la clé liée utilisent le titulaire vérifié et tentent une rotation lorsque le quota est épuisé. Les autres clés et accès API indépendants conservent leurs pools. Les autres politiques arrêtent la rotation automatique tout en conservant la configuration et les protections des opérations en cours.",
         "unavailable": "Indisponible ; désélectionnez ce compte",
         "selectRequired": "Sélectionnez au moins un compte."
       },

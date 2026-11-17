@@ -1901,6 +1901,11 @@ pub async fn update_local_access_forwarding_policy(
 ) -> Result<CodexLocalAccessState, String> {
     use crate::models::codex_local_access::CodexForwardingMode;
     ensure_runtime_loaded().await?;
+    if policy.mode == CodexForwardingMode::PremiumRotation
+        && !get_premium_seat_rotation()?.config.is_some_and(|config| config.enabled)
+    {
+        return Err("请先在下方配置并启用高级席位自动调换".into());
+    }
     let mut runtime = gateway_runtime().lock().await;
     let mut collection = runtime.collection.clone().ok_or("本地接入集合尚未创建")?;
     let mut seen = HashSet::new();

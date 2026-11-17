@@ -5056,9 +5056,11 @@
         "title": "Kebijakan penerusan",
         "all": "Semua akun yang tersedia",
         "premiumOnly": "Hanya kursi premium",
+        "premiumRotation": "Rotasi kursi premium otomatis",
         "selectedAccounts": "Akun yang dipilih",
         "hint": "Berlaku untuk permintaan obrolan dan gambar. Cakupan kunci, izin model, dan perlindungan kuota tetap berlaku. Simpan untuk menerapkan mode yang dipilih.",
         "premiumHint": "Hanya akun OAuth lokal dengan identitas tim terkonfirmasi dan paket prolite yang diizinkan. Penerusan berhenti jika data kursi tidak diketahui atau tidak ada kursi premium yang memenuhi syarat. Perbarui detail akun terlebih dahulu.",
+        "rotationHint": "Konfigurasikan dan aktifkan rotasi di bawah terlebih dahulu. Permintaan OAuth lokal pada Key terkait memakai pemegang kursi terverifikasi dan mencoba rotasi saat kuota habis. Key lain dan akses API independen tetap memakai kumpulan akun. Kebijakan lain menghentikan rotasi otomatis sambil mempertahankan pengaturan dan perlindungan operasi tertunda.",
         "unavailable": "Tidak tersedia; batalkan pilihan akun ini",
         "selectRequired": "Pilih setidaknya satu akun."
       },

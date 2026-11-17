@@ -3,6 +3,28 @@ use crate::modules::codex_seat_rotation as seat;
 
 static SEAT_REQUEST_CHECK_GATE: OnceLock<Mutex<seat::worker::RequestCheckGate>> = OnceLock::new();
 
+fn seat_rotation_selected(collection: &CodexLocalAccessCollection) -> bool {
+    collection.forwarding_policy.mode
+        == crate::models::codex_local_access::CodexForwardingMode::PremiumRotation
+}
+
+// Apply the public policy to a routing snapshot only. Keep persisted coordination
+// and pending source/target barriers intact when another policy is selected.
+fn seat_state_for_policy(
+    collection: &CodexLocalAccessCollection,
+    mut state: seat::State,
+    internal: bool,
+) -> Result<seat::State, native_contract::ServiceError> {
+    if seat_rotation_selected(collection) {
+        if !internal && !state.config.as_ref().is_some_and(|config| config.enabled) {
+            return Err(native_error(503, "premium_seat_not_configured", "Configure and enable premium seat rotation before selecting this forwarding policy"));
+        }
+    } else if let Some(config) = state.config.as_mut() {
+        config.enabled = false;
+    }
+    Ok(state)
+}
+
 fn seat_dir() -> Result<PathBuf, String> {
     account::get_data_dir()
 }
@@ -718,7 +740,9 @@ pub async fn control_premium_seat_rotation(
         if let Some((target, confirmation)) = forced_request {
             seat::worker::check_force_confirmation(&state, target, confirmation, seat_now())?;
         }
-        seat_collection(&config).await?;
+        if !seat_rotation_selected(&seat_collection(&config).await?) {
+            return Err("请先保存「高级席位自动调换」转发策略".into());
+        }
         let backend = PremiumSeatBackend {
             config: &config,
             api: tokio::sync::Mutex::new(None),
@@ -913,6 +937,12 @@ async fn premium_seat_request_failed(
     let Ok(mut state) = seat::load(&dir) else {
         return false;
     };
+    let Some(config) = state.config.as_ref() else {
+        return false;
+    };
+    if !seat_collection(config).await.is_ok_and(|collection| seat_rotation_selected(&collection)) {
+        return false;
+    }
     if state.config.as_ref().is_some_and(|config| config.enabled && config.api_key_id == key)
         && state.holder_account_id.as_deref().is_some_and(|holder| holder != account && state.allows(Some(key), holder, false, seat_now()))
     {
@@ -1003,6 +1033,13 @@ impl seat::worker::Backend for PremiumSeatBackend<'_> {
         let collection = seat_collection(self.config).await?;
         seat_candidate_ids(self.config, &collection).map(|_| ())
     }
+    async fn check_rotation_policy(&self) -> Result<(), String> {
+        if seat_rotation_selected(&seat_collection(self.config).await?) {
+            Ok(())
+        } else {
+            Err("转发策略已切换，已停止新的席位提交".into())
+        }
+    }
     async fn check_holder_scope(&self, id: &str) -> Result<(), String> {
         let collection = seat_collection(self.config).await?;
         seat_check_holder_scope(self.config, &collection, id)
@@ -1052,6 +1089,9 @@ impl seat::worker::Backend for PremiumSeatBackend<'_> {
         seat_business_probe(self.config, id).await
     }
     async fn swap(&self, op: &seat::Operation) -> Result<(), String> {
+        // A request may have started draining before the user changed policy.
+        // Reconcile already-submitted operations, but do not start another swap.
+        self.check_rotation_policy().await?;
         // Re-read the local identities at the final mutation boundary too.
         seat_team_member_account(self.config, &self.config.admin_account_id)?;
         seat_team_member_account(self.config, &op.source_account_id)?;
@@ -1165,11 +1205,12 @@ fn seat_filter_model_accounts(
 }
 
 fn seat_validate_prepared_route(
+    collection: &CodexLocalAccessCollection,
     account: &CodexAccount,
     key: Option<&str>,
     internal: bool,
 ) -> Result<(), native_contract::ServiceError> {
-    let (_, state) = seat_routing_state()?;
+    let (_, state) = seat_routing_state(collection, internal)?;
     let managed = seat_account_uses_rotation(account)
         && !internal
         && state
@@ -1201,7 +1242,10 @@ fn seat_validate_prepared_route(
 #[path = "codex_local_access_seat_route_tests.rs"]
 mod seat_route_tests;
 
-fn seat_routing_state() -> Result<(PathBuf, seat::State), native_contract::ServiceError> {
+fn seat_routing_state(
+    collection: &CodexLocalAccessCollection,
+    internal: bool,
+) -> Result<(PathBuf, seat::State), native_contract::ServiceError> {
     let dir = seat_dir().map_err(|_| {
         native_error(
             503,
@@ -1228,10 +1272,11 @@ fn seat_routing_state() -> Result<(PathBuf, seat::State), native_contract::Servi
     if let Ok(mut gate) = SEAT_REQUEST_CHECK_GATE.get_or_init(Default::default).lock() {
         gate.synchronize(&state);
     }
-    Ok((dir, state))
+    Ok((dir, seat_state_for_policy(collection, state, internal)?))
 }
 
 fn seat_native_lease(
+    collection: &CodexLocalAccessCollection,
     account: &CodexAccount,
     key: Option<&str>,
     internal: bool,
@@ -1243,7 +1288,7 @@ fn seat_native_lease(
     {
         return Ok(permit);
     }
-    let (dir, _) = seat_routing_state()?;
+    let (dir, _) = seat_routing_state(collection, internal)?;
     let lease = seat::admit(&dir, &account.id, permit).map_err(|_| {
         native_error(
             503,
@@ -1251,7 +1296,7 @@ fn seat_native_lease(
             "Account is draining for a seat change",
         )
     })?;
-    let (_, state) = seat_routing_state()?;
+    let (_, state) = seat_routing_state(collection, internal)?;
     if !seat_account_route_allows(&state, key, account, internal) {
         return Err(native_error(
             503,

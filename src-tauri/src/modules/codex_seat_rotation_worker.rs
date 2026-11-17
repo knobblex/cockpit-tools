@@ -12,6 +12,11 @@ pub trait Backend: Sync {
     fn candidates(&self) -> impl Future<Output = Result<Vec<String>, String>> + Send;
     fn check_holder_scope(&self, account: &str) -> impl Future<Output = Result<(), String>> + Send;
     fn check_scope(&self) -> impl Future<Output = Result<(), String>> + Send;
+    // Configuration/probes may run while another forwarding mode is selected.
+    // Only a new seat submission requires the rotation strategy to be active.
+    fn check_rotation_policy(&self) -> impl Future<Output = Result<(), String>> + Send {
+        async { Ok(()) }
+    }
     fn snapshot(&self) -> impl Future<Output = Result<http::Snapshot, http::AdminError>> + Send;
     fn quota(
         &self,
@@ -759,6 +764,10 @@ async fn step_with_trigger<B: Backend>(
         state.cancel_prepared();
         state.paused = true;
         return Ok(());
+    }
+    if let Err(error) = backend.check_rotation_policy().await {
+        state.cancel_prepared();
+        return Err(error);
     }
     let operation = state.operation.as_mut().ok_or("席位操作缺失")?;
     operation.exhaustion_triggered = Some(latest_quota == QuotaEvidence::Exhausted);

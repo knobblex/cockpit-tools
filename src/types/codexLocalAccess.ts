@@ -157,7 +157,7 @@ export interface CodexLocalAccessTimeoutPreset {
   updatedAt: number;
 }
 
-export type CodexForwardingMode = 'all' | 'premium_only' | 'selected_accounts';
+export type CodexForwardingMode = 'all' | 'premium_only' | 'premium_rotation' | 'selected_accounts';
 export interface CodexForwardingPolicy {
   mode: CodexForwardingMode;
   accountIds: string[];

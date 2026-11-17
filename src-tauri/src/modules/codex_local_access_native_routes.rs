@@ -1126,7 +1126,7 @@ async fn native_select_route_once(
 ) -> Result<native_contract::Route, native_contract::ServiceError> {
     let collection = host.collection().await?;
     let key = native_caller_key(&collection, caller)?;
-    let (_, seat_state) = seat_routing_state()?;
+    let (_, seat_state) = seat_routing_state(&collection, caller.id == NATIVE_INTERNAL_CALLER)?;
     let seat_key = key.map(|key| key.id.as_str());
     let seat_internal = caller.id == NATIVE_INTERNAL_CALLER;
     let public_model = native_model_for_key(&collection, key, &request.model)?;
@@ -1996,10 +1996,11 @@ async fn native_route_for_reserved_account(
     seat_internal: bool,
     http1_only: bool,
 ) -> Result<native_contract::Route, native_contract::ServiceError> {
-    if !seat_internal && !native_forwarding_allows(&host.collection().await?, &account) {
+    let current_collection = host.collection().await?;
+    if !seat_internal && !native_forwarding_allows(&current_collection, &account) {
         return Err(native_error(403, "forwarding_account_not_allowed", "Account is excluded by the forwarding policy"));
     }
-    let permit = seat_native_lease(&account, seat_key, seat_internal, permit)?;
+    let permit = seat_native_lease(&current_collection, &account, seat_key, seat_internal, permit)?;
     let account = native_prepare_account(account, force_refresh).await?;
     let (account, mut headers, base_url, official_authorization_revision) =
         native_account_credentials(account, force_refresh).await?;
@@ -2136,10 +2137,11 @@ async fn native_route_for_reserved_account(
     if headers.contains_key("x-xai-token-auth") {
         crate::modules::grok_client_version::refresh_in_background(client.clone());
     }
-    if !seat_internal && !native_forwarding_allows(&host.collection().await?, &account) {
+    let current_collection = host.collection().await?;
+    if !seat_internal && !native_forwarding_allows(&current_collection, &account) {
         return Err(native_error(403, "forwarding_account_not_allowed", "Account no longer satisfies the forwarding policy"));
     }
-    seat_validate_prepared_route(&account, seat_key, seat_internal)?;
+    seat_validate_prepared_route(&current_collection, &account, seat_key, seat_internal)?;
     Ok(native_contract::Route {
         official_fallback_registration_id: None,
         official_fallback_authorization_revision: None,

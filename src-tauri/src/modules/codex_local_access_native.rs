@@ -542,7 +542,7 @@ fn native_excluded(patterns: &[String], model: &str) -> bool {
 fn native_forwarding_allows(collection: &CodexLocalAccessCollection, account: &CodexAccount) -> bool {
     use crate::models::codex_local_access::CodexForwardingMode;
     match collection.forwarding_policy.mode {
-        CodexForwardingMode::All => true,
+        CodexForwardingMode::All | CodexForwardingMode::PremiumRotation => true,
         CodexForwardingMode::SelectedAccounts => collection.forwarding_policy.account_ids.contains(&account.id),
         CodexForwardingMode::PremiumOnly => {
             !account.is_api_key_auth()

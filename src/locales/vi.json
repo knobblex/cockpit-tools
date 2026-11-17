@@ -5009,9 +5009,11 @@
         "title": "Chính sách chuyển tiếp",
         "all": "Tất cả tài khoản khả dụng",
         "premiumOnly": "Chỉ ghế cao cấp",
+        "premiumRotation": "Tự động luân chuyển suất cao cấp",
         "selectedAccounts": "Tài khoản được chọn",
         "hint": "Áp dụng cho yêu cầu trò chuyện và hình ảnh. Phạm vi khóa, quyền mô hình và bảo vệ hạn mức vẫn có hiệu lực. Lưu để áp dụng chế độ đã chọn.",
         "premiumHint": "Chỉ cho phép tài khoản OAuth cục bộ có danh tính nhóm đã xác nhận và gói prolite. Dừng chuyển tiếp nếu thông tin ghế chưa rõ hoặc không có ghế cao cấp đủ điều kiện. Hãy làm mới thông tin tài khoản trước.",
+        "rotationHint": "Trước tiên hãy cấu hình và bật luân chuyển bên dưới. Yêu cầu OAuth cục bộ của Key liên kết dùng thành viên giữ suất đã xác minh và thử đổi khi hết hạn mức. Key khác và quyền API độc lập vẫn dùng nhóm tài khoản. Chính sách khác dừng tự động luân chuyển, giữ cấu hình và bảo vệ thao tác đang chờ.",
         "unavailable": "Không khả dụng; bỏ chọn tài khoản này",
         "selectRequired": "Chọn ít nhất một tài khoản."
       },

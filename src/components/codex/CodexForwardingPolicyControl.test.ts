@@ -101,3 +101,18 @@ test('accounts granted only by a fixed Key scope or provider route remain select
   h.keys([{ modelRouting: { routes: [{ providerAccountId: 'outside' }] } }]);
   assert.equal(h.render().filter((node) => node.type === 'input').length, 4);
 });
+
+
+test('automatic seat rotation is an explicit forwarding mode and only activates after save', async () => {
+  const h = harness({ mode: 'all', accountIds: ['a'] });
+  assert.ok(h.render().find((node) => node.type === 'Dropdown').props.options.some((option: any) => option.value === 'premium_rotation'));
+  h.mode('premium_rotation');
+  assert.equal(h.calls.length, 0);
+  h.save();
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls[0])), { mode: 'premium_rotation', accountIds: ['a'] });
+  h.response.resolve({ collection: { forwardingPolicy: h.calls[0] } });
+  await settlePromises();
+  assert.equal(h.saved(), 1);
+  h.mode('all');
+  assert.equal(h.render().find((node) => node.type === 'Dropdown').props.value, 'all');
+});

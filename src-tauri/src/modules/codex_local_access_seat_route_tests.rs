@@ -1,5 +1,66 @@
 use super::*;
 
+fn seat_rotation_test_collection() -> CodexLocalAccessCollection {
+    serde_json::from_value(json!({
+        "enabled": true, "port": 1455, "apiKey": "fixture",
+        "forwardingPolicy": {"mode": "premium_rotation"}, "accountIds": [], "createdAt": 1, "updatedAt": 2
+    })).unwrap()
+}
+
+#[test]
+fn forwarding_modes_override_holder_binding_but_preserve_pending_barriers() {
+    use crate::models::codex_local_access::CodexForwardingMode;
+    let mut collection = seat_rotation_test_collection();
+    let mut state = seat::State {
+        config: Some(seat::Config {
+            enabled: true, workspace_id: "workspace".into(), admin_account_id: "admin".into(),
+            api_key_id: "key".into(), use_api_key_pool: true, member_account_ids: vec![], probe_model: String::new(),
+        }),
+        phase: seat::Phase::NeedsAttention, paused: true,
+        holder_account_id: Some("holder".into()), ..Default::default()
+    };
+    // Reproduce the exhausted/paused holder from the incident. Normal policies
+    // must admit another account on the very same key, including continuations.
+    for mode in [CodexForwardingMode::All, CodexForwardingMode::PremiumOnly, CodexForwardingMode::SelectedAccounts] {
+        collection.forwarding_policy.mode = mode;
+        let routed = seat_state_for_policy(&collection, state.clone(), false).unwrap();
+        assert!(routed.allows(Some("key"), "other", false, seat_now()));
+        assert!(!routed.routing_unverified(Some("key"), false, seat_now()));
+        assert!(state.config.as_ref().unwrap().enabled);
+    }
+    collection.forwarding_policy.mode = CodexForwardingMode::PremiumRotation;
+    let routed = seat_state_for_policy(&collection, state.clone(), false).unwrap();
+    assert!(!routed.allows(Some("key"), "other", false, seat_now()));
+    assert!(routed.routing_unverified(Some("key"), false, seat_now()));
+    state.phase = seat::Phase::Ready;
+    state.paused = false;
+    state.validated_at = Some(seat_now());
+    let routed = seat_state_for_policy(&collection, state.clone(), false).unwrap();
+    assert!(routed.allows(Some("key"), "holder", false, seat_now()));
+    assert!(!routed.allows(Some("key"), "other", false, seat_now()));
+    assert!(routed.allows(Some("another-key"), "other", false, seat_now()));
+    state.phase = seat::Phase::Submitted;
+    state.operation = Some(serde_json::from_value(json!({
+        "id": "pending", "workspaceId": "workspace", "sourceAccountId": "holder", "targetAccountId": "target",
+        "sourceUserId": "source-user", "targetUserId": "target-user", "beforeCounts": {"default": 2, "prolite": 1},
+        "createdAt": 1, "submittedAt": 2, "probeStarted": false, "resolvedWithoutSwap": false
+    })).unwrap());
+    collection.forwarding_policy.mode = CodexForwardingMode::All;
+    let routed = seat_state_for_policy(&collection, state, false).unwrap();
+    assert!(!routed.allows(Some("key"), "holder", false, seat_now()));
+    assert!(!routed.allows(Some("another-key"), "target", false, seat_now()));
+    assert!(routed.allows(Some("key"), "other", false, seat_now()));
+}
+
+#[test]
+fn rotation_policy_requires_enabled_configuration_and_roundtrips() {
+    let collection = seat_rotation_test_collection();
+    let restored: CodexLocalAccessCollection = serde_json::from_value(serde_json::to_value(&collection).unwrap()).unwrap();
+    assert_eq!(restored.forwarding_policy, collection.forwarding_policy);
+    assert!(seat_state_for_policy(&restored, seat::State::default(), true).is_ok());
+    assert_eq!(seat_state_for_policy(&restored, seat::State::default(), false).unwrap_err().code, "premium_seat_not_configured");
+}
+
 #[test]
 fn quota_commit_race_retries_only_for_the_same_eligible_member() {
     let mut account = CodexAccount::new("fixture".into(), "fixture@example.invalid".into(),
@@ -206,13 +267,13 @@ fn seat_validation_survives_request_stack_pressure() {
     admin.account_id = Some("00000000-0000-4000-8000-000000000002".into());
     write_admin(&admin);
     runtime
-        .block_on(async { seat_validate_prepared_route(&holder, Some("fixture-key"), false) })
+        .block_on(async { seat_validate_prepared_route(&seat_rotation_test_collection(), &holder, Some("fixture-key"), false) })
         .unwrap();
     fs::remove_file(&admin_path).unwrap();
     state.validated_at = Some(seat_now() - 30 * 24 * 60 * 60);
     seat::save(&dir, &state).unwrap();
     runtime
-        .block_on(async { seat_validate_prepared_route(&holder, Some("fixture-key"), false) })
+        .block_on(async { seat_validate_prepared_route(&seat_rotation_test_collection(), &holder, Some("fixture-key"), false) })
         .unwrap();
 
     // The actual holder's identity and authorization remain mandatory at the
@@ -225,7 +286,7 @@ fn seat_validation_survives_request_stack_pressure() {
             _ => invalid.requires_reauth = true,
         }
         let error = runtime
-            .block_on(async { seat_validate_prepared_route(&invalid, Some("fixture-key"), false) })
+            .block_on(async { seat_validate_prepared_route(&seat_rotation_test_collection(), &invalid, Some("fixture-key"), false) })
             .unwrap_err();
         assert_eq!(error.code, "premium_seat_not_verified");
     }
@@ -235,15 +296,22 @@ fn seat_validation_survives_request_stack_pressure() {
         Some("http://127.0.0.1:9/v1".into()), None, None,
         vec!["gemini-4-argon-high".into()],
     );
-    seat_validate_prepared_route(&provider, Some("fixture-key"), false).unwrap();
+    seat_validate_prepared_route(&seat_rotation_test_collection(), &provider, Some("fixture-key"), false).unwrap();
     state.phase = seat::Phase::Idle;
     state.validated_at = None;
     seat::save(&dir, &state).unwrap();
-    seat_validate_prepared_route(&provider, Some("fixture-key"), false).unwrap();
+    seat_validate_prepared_route(&seat_rotation_test_collection(), &provider, Some("fixture-key"), false).unwrap();
     let error = runtime
-        .block_on(async { seat_validate_prepared_route(&holder, Some("fixture-key"), false) })
+        .block_on(async { seat_validate_prepared_route(&seat_rotation_test_collection(), &holder, Some("fixture-key"), false) })
         .unwrap_err();
     assert_eq!(error.code, "premium_seat_not_verified");
+    // Saving All must also bypass the holder restriction at both final
+    // preparation boundaries, rather than only during candidate selection.
+    let mut all = seat_rotation_test_collection();
+    all.forwarding_policy.mode = crate::models::codex_local_access::CodexForwardingMode::All;
+    seat_validate_prepared_route(&all, &holder, Some("fixture-key"), false).unwrap();
+    let permit = seat_native_lease(&all, &holder, Some("fixture-key"), false, None).unwrap();
+    assert!(permit.is_some());
 }
 
 #[inline(never)]
@@ -253,7 +321,7 @@ fn validate_with_stack_pressure(runtime: &tokio::runtime::Runtime, holder: &Code
     let mut request_stack = [0u8; 1792 * 1024];
     std::hint::black_box(&mut request_stack);
     runtime
-        .block_on(async { seat_validate_prepared_route(holder, Some("fixture-key"), false) })
+        .block_on(async { seat_validate_prepared_route(&seat_rotation_test_collection(), holder, Some("fixture-key"), false) })
         .unwrap();
     std::hint::black_box(&request_stack);
 }

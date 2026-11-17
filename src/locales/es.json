@@ -5009,9 +5009,11 @@
         "title": "Política de reenvío",
         "all": "Todas las cuentas disponibles",
         "premiumOnly": "Solo puestos prémium",
+        "premiumRotation": "Rotación automática del puesto premium",
         "selectedAccounts": "Cuentas seleccionadas",
         "hint": "Se aplica a las solicitudes de chat e imágenes. Se mantienen los ámbitos de las claves, los permisos de los modelos y la protección de cuota. Guarda para aplicar el modo seleccionado.",
         "premiumHint": "Solo se admiten cuentas OAuth locales con identidad de equipo confirmada y un plan prolite. El reenvío se detiene si los datos del puesto son desconocidos o no hay puestos prémium aptos. Actualiza primero los datos de la cuenta.",
+        "rotationHint": "Primero configure y active la rotación abajo. Las solicitudes OAuth locales de la clave vinculada usan al titular verificado e intentan rotar al agotar la cuota. Las demás claves y accesos API independientes mantienen sus grupos. Otras políticas detienen la rotación automática y conservan la configuración y la protección de operaciones pendientes.",
         "unavailable": "No disponible; desmarca esta cuenta",
         "selectRequired": "Selecciona al menos una cuenta."
       },

@@ -120,11 +120,13 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
   const saveDisabled = formDisabled || (draft.enabled && (!native || Boolean(draftEligibilityReason)));
   const enableDisabled = formDisabled || (!draft.enabled && (!native || Boolean(draftEligibilityReason)));
   const enabled = Boolean(state?.config?.enabled);
-  const statusTone = loadStatus === "error" || state?.phase === "needs_attention" ? "error" : enabled && !state?.paused ? "success" : "muted";
-  const statusLabel = loadStatus === "loading" ? "加载中" : loadStatus === "error" ? "读取失败" : state?.paused ? "已暂停" : enabled ? phases[state!.phase] : "未启用";
+  const selected = collection?.forwardingPolicy?.mode === "premium_rotation";
+  const statusTone = loadStatus === "error" || (selected || unresolved) && state?.phase === "needs_attention" ? "error" : selected && enabled && !state?.paused ? "success" : "muted";
+  const statusLabel = loadStatus === "loading" ? "加载中" : loadStatus === "error" ? "读取失败" : enabled && !selected && !unresolved ? "未选用此策略" : state?.paused ? "已暂停" : enabled ? phases[state!.phase] : "未启用";
   const savedKey = collection?.apiKeys.find((k) => k.id === state?.config?.apiKeyId);
   const nextDisabledReason = busy ? "正在处理席位操作" : !loaded ? (loadStatus === "error" ? "请先重新加载席位状态" : "正在加载配置")
     : dirty.current ? "请先保存配置修改" : !native ? "请先启用原生 Rust API 网关"
+    : !selected ? "请先保存「高级席位自动调换」转发策略"
     : !enabled ? "请先保存并启用席位调换配置" : unresolved ? "请先核对未完成的席位操作"
     : savedEligibilityReason || (state?.paused ? "请先重新核对并恢复" : state?.phase !== "ready" ? "等待当前高级成员验证通过" : "");
   const pauseDisabled = busy || !loaded || (!enabled && !unresolved) || Boolean(state?.paused);
@@ -153,7 +155,8 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
       </button>
       </div>
     </div>
-    <p className="premium-seat-description">仅团队工作区可手动启用。正常调用沿用当前成员；实际请求明确返回额度耗尽时，按需核对并尝试下一位，验证通过后接入路由。</p>
+    <p className="premium-seat-description">选用「高级席位自动调换」转发策略后，关联 Key 的本地 OAuth 请求沿用已验证持席成员；实际请求明确返回额度耗尽时，按需核对并尝试下一位。</p>
+    {!selected && <p className="premium-seat-hint" role="status">当前转发策略不使用自动调换；下方配置保留，不限制普通账号池转发。已提交的席位操作仍需核对。</p>}
     <dl className="premium-seat-overview">
       <div><dt><Users size={13} />当前高级成员</dt><dd>{display(state?.holderAccountId)}</dd></div>
       <div><dt><ShieldCheck size={13} />关联账号池</dt><dd>{savedKey?.label ?? "尚未配置"}</dd></div>
@@ -229,7 +232,7 @@ export function CodexPremiumSeatRotationControl({ accounts, collection }: {
             onChange={(e) => { if (!enableDisabled) edit({ enabled: e.target.checked }); }} />
         </label>
         {draftEligibilityReason && <p className="premium-seat-hint" role="status">{draftEligibilityReason}</p>}
-        {draft.enabled && <p className="premium-seat-hint">启用后，将在此 Key 当前及后续加入的同工作区池内成员中自动调换现有高级席位。变更会影响来源和目标成员在工作区及其他客户端的权益；初次启用和每次调换会消耗少量额度执行定向探测。</p>}
+        {draft.enabled && <p className="premium-seat-hint">保存会验证当前持席成员；选用对应转发策略后，才会在此 Key 的同工作区池内成员中自动调换。变更会影响来源和目标成员在工作区及其他客户端的权益；初次启用和每次调换会消耗少量额度执行定向探测。</p>}
         <div className="premium-seat-form-footer"><span className="premium-seat-hint">只读核对不会变更席位。</span><div className="premium-seat-actions">
           <button type="button" className="btn btn-secondary btn-sm" disabled={checkDisabled} onClick={() => { if (!checkDisabled) void run(() => checkPremiumSeat(draft)); }}><ShieldCheck size={14} />只读核对</button>
           <button type="button" className="btn btn-primary btn-sm" disabled={saveDisabled} onClick={() => { if (!saveDisabled) void run(() => configurePremiumSeat(draft), true); }}><Save size={14} />保存配置</button>

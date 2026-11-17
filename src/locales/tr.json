@@ -5009,9 +5009,11 @@
         "title": "Yönlendirme ilkesi",
         "all": "Kullanılabilir tüm hesaplar",
         "premiumOnly": "Yalnızca premium koltuklar",
+        "premiumRotation": "Otomatik premium koltuk değişimi",
         "selectedAccounts": "Seçili hesaplar",
         "hint": "Sohbet ve görsel isteklerine uygulanır. Anahtar kapsamları, model izinleri ve kota koruması geçerli olmaya devam eder. Seçilen modu uygulamak için kaydedin.",
         "premiumHint": "Yalnızca ekip kimliği doğrulanmış ve prolite planına sahip yerel OAuth hesaplarına izin verilir. Koltuk bilgileri bilinmiyorsa veya uygun premium koltuk yoksa yönlendirme durur. Önce hesap bilgilerini yenileyin.",
+        "rotationHint": "Önce aşağıda koltuk değişimini yapılandırıp etkinleştirin. Bağlı anahtarın yerel OAuth istekleri doğrulanmış koltuk sahibini kullanır ve kota dolunca değişimi dener. Diğer anahtarlar ve bağımsız API izinleri hesap havuzlarını korur. Diğer politikalar otomatik değişimi durdurur; ayarlar ve bekleyen işlem korumaları korunur.",
         "unavailable": "Kullanılamıyor; bu hesabın seçimini kaldırın",
         "selectRequired": "En az bir hesap seçin."
       },

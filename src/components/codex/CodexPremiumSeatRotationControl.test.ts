@@ -32,6 +32,7 @@ function state(patch: Partial<PremiumSeatState> = {}): PremiumSeatState {
 }
 function collection(patch: Partial<CodexLocalAccessCollection> = {}): CodexLocalAccessCollection {
   return { enabled: true, gatewayMode: 'native', accountIds: ['admin', 'member'],
+    forwardingPolicy: { mode: 'premium_rotation', accountIds: [] },
     apiKeys: [{ id: 'key', label: 'Client key', key: 'secret', enabled: true, inheritAccountPool: true,
       allowedModels: [], excludedModels: [], tokenUsed: 0, createdAt: 1, updatedAt: 1 }],
     ...patch } as CodexLocalAccessCollection;
@@ -456,4 +457,16 @@ test('editing configuration dismisses confirmation and legacy candidate bounds e
   assert.match(text(panel), /member@example.com/);
   assert.doesNotMatch(text(panel), /third@example.com/);
   legacy.hook.unmount();
+});
+
+
+test('other forwarding policies retain configuration without activating holder routing or next-member actions', async () => {
+  const h = harness(undefined, readyWithCooldown(), collection({ forwardingPolicy: { mode: 'all', accountIds: [] } }));
+  await settlePromises();
+  assert.match(h.visible(), /未选用此策略/);
+  assert.match(h.visible(), /不限制普通账号池转发/);
+  assert.equal(h.button('切换下一位').props.disabled, true);
+  assert.match(h.button('切换下一位').props.title, /转发策略/);
+  h.setCollection(collection());
+  assert.equal(h.button('切换下一位').props.disabled, false);
 });

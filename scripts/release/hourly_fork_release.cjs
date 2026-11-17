@@ -299,6 +299,15 @@ function pickDraft(releases, publishedVersion, tip) {
     log(`Ignoring draft ${draft.tag_name}: it targets ${String(draft.target_commitish).slice(0, 8)}, but ${BRANCH} is at ${tip.slice(0, 8)}.`);
     return null;
   }
+  // A draft that already carries an Apple notarization record was signed and
+  // verified by fork-apple-sign.yml, which publishes it itself. Re-signing it
+  // locally would download the same ~900 MB twice and race the CI publish, so
+  // leave it alone. This also keeps the two paths complementary: the local
+  // finalizer only handles drafts that CI never managed to sign.
+  if ((draft.assets || []).some(asset => asset.name === 'Apple-notarization.json')) {
+    log(`Waiting for CI to publish ${draft.tag_name}: fork-apple-sign.yml already signed and notarized it.`);
+    return null;
+  }
   return draft;
 }
 

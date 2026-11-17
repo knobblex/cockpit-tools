@@ -36,6 +36,7 @@ pub enum CodexForwardingMode {
     #[default]
     All,
     PremiumOnly,
+    PremiumRotation,
     SelectedAccounts,
 }
 

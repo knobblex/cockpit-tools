@@ -5009,9 +5009,11 @@
         "title": "Pravidla předávání",
         "all": "Všechny dostupné účty",
         "premiumOnly": "Pouze prémiová místa",
+        "premiumRotation": "Automatické střídání prémiového místa",
         "selectedAccounts": "Vybrané účty",
         "hint": "Platí pro požadavky na chat i obrázky. Rozsah klíčů, oprávnění modelů a ochrana kvóty zůstávají v platnosti. Režim použijete uložením.",
         "premiumHint": "Povoleny jsou pouze místní účty OAuth s potvrzenou týmovou identitou a tarifem prolite. Neznámé údaje nebo žádné způsobilé prémiové místo zastaví předávání. Nejprve obnovte údaje účtu.",
+        "rotationHint": "Nejprve níže nastavte a zapněte střídání. Místní požadavky OAuth propojeného klíče používají ověřeného držitele místa a po vyčerpání kvóty zkusí střídání. Ostatní klíče a nezávislé přístupy API zachovají své fondy. Jiné zásady zastaví automatické střídání, ale zachovají nastavení a ochranu nedokončených operací.",
         "unavailable": "Nedostupný; zrušte výběr účtu",
         "selectRequired": "Vyberte alespoň jeden účet."
       },

@@ -207,6 +207,7 @@ struct Mock {
     holder_quota_reads: AtomicUsize,
     quota_reads: AtomicUsize,
     holder_quota_unknown: AtomicBool,
+    rotation_selected: AtomicBool,
 }
 impl Mock {
     fn new(dir: &Path) -> Self {
@@ -246,6 +247,7 @@ impl Mock {
             holder_quota_reads: AtomicUsize::new(0),
             quota_reads: AtomicUsize::new(0),
             holder_quota_unknown: AtomicBool::new(false),
+            rotation_selected: AtomicBool::new(true),
         }
     }
 }
@@ -305,6 +307,13 @@ impl worker::Backend for Mock {
             Ok(())
         } else {
             Err("ACL revoked".into())
+        }
+    }
+    async fn check_rotation_policy(&self) -> Result<(), String> {
+        if self.rotation_selected.load(Ordering::SeqCst) {
+            Ok(())
+        } else {
+            Err("forwarding policy changed".into())
         }
     }
     async fn snapshot(&self) -> Result<http::Snapshot, http::AdminError> {
@@ -1062,6 +1071,31 @@ async fn manual_next_probe_failure_blocks_publication_and_another_manual_swap() 
         .await
         .is_err());
     assert_eq!(mock.posts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn switching_forwarding_policy_while_draining_cancels_without_submitting() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new(dir.path());
+    let mut state = state();
+    let lease = admit(dir.path(), "a", None).unwrap();
+    let config = config();
+    let task = worker::step(dir.path(), &config, &mut state, &mock);
+    let change_policy = async {
+        loop {
+            if load(dir.path()).unwrap().phase == Phase::Draining { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        mock.rotation_selected.store(false, Ordering::SeqCst);
+        drop(lease);
+    };
+    let (result, _) = tokio::join!(task, change_policy);
+    assert_eq!(result.unwrap_err(), "forwarding policy changed");
+    assert_eq!(mock.posts.load(Ordering::SeqCst), 0);
+    assert!(!state.pending());
+    assert!(state.operation.as_ref().unwrap().submitted_at.is_none());
+    save(dir.path(), &state).unwrap();
+    assert!(!load(dir.path()).unwrap().pending());
 }
 
 #[tokio::test]

@@ -5263,9 +5263,11 @@
         "title": "转发策略",
         "all": "全部可用账号",
         "premiumOnly": "只转发高级席位",
+        "premiumRotation": "高级席位自动调换",
         "selectedAccounts": "指定账号",
         "hint": "适用于对话和生图请求；继续遵守 Key 范围、模型权限与额度保护。模式切换后点击保存生效。",
         "premiumHint": "仅使用已确认团队身份且套餐为 prolite 的本地 OAuth 高级席位。资料未知或没有可用高级席位时停止转发，请先刷新账号资料。",
+        "rotationHint": "请先在下方配置并启用席位调换。关联 Key 的本地 OAuth 请求只使用已验证持席成员，额度耗尽时尝试调换；其他 Key 和独立 API 授权仍按账号池转发。切换其他策略后停止自动调换，保留配置和未决操作保护。",
         "unavailable": "不可用，请取消选择",
         "selectRequired": "请至少选择一个账号。"
       },

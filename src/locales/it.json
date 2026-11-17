@@ -5009,9 +5009,11 @@
         "title": "Criteri di inoltro",
         "all": "Tutti gli account disponibili",
         "premiumOnly": "Solo posti premium",
+        "premiumRotation": "Rotazione automatica del posto premium",
         "selectedAccounts": "Account selezionati",
         "hint": "Si applica alle richieste di chat e immagini. Restano validi gli ambiti delle chiavi, le autorizzazioni dei modelli e la protezione delle quote. Salva per applicare la modalità selezionata.",
         "premiumHint": "Sono ammessi solo account OAuth locali con identità del team confermata e piano prolite. L’inoltro si interrompe se i dati del posto sono sconosciuti o non ci sono posti premium idonei. Aggiorna prima i dati dell’account.",
+        "rotationHint": "Configura e abilita prima la rotazione qui sotto. Le richieste OAuth locali della chiave collegata usano il titolare verificato e tentano la rotazione a quota esaurita. Le altre chiavi e autorizzazioni API indipendenti mantengono i propri pool. Le altre politiche fermano la rotazione automatica, conservando impostazioni e protezioni delle operazioni in sospeso.",
         "unavailable": "Non disponibile; deseleziona questo account",
         "selectRequired": "Seleziona almeno un account."
       },

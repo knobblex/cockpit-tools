@@ -5009,9 +5009,11 @@
         "title": "Política de encaminhamento",
         "all": "Todas as contas disponíveis",
         "premiumOnly": "Somente assentos premium",
+        "premiumRotation": "Rotação automática do assento premium",
         "selectedAccounts": "Contas selecionadas",
         "hint": "Aplica-se às solicitações de chat e imagens. Os escopos das chaves, as permissões dos modelos e a proteção de cota continuam valendo. Salve para aplicar o modo selecionado.",
         "premiumHint": "Somente contas OAuth locais com identidade de equipe confirmada e plano prolite são permitidas. O encaminhamento para se os dados do assento forem desconhecidos ou não houver assento premium elegível. Atualize os dados da conta primeiro.",
+        "rotationHint": "Primeiro configure e ative a rotação abaixo. Solicitações OAuth locais da chave vinculada usam o titular verificado e tentam alternar quando a cota acaba. Outras chaves e autorizações API independentes mantêm seus grupos. Outras políticas interrompem a rotação automática, preservando configurações e proteção de operações pendentes.",
         "unavailable": "Indisponível; desmarque esta conta",
         "selectRequired": "Selecione pelo menos uma conta."
       },

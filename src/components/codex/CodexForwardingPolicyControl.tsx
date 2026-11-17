@@ -67,11 +67,13 @@ export function CodexForwardingPolicyControl({ accounts, collection, disabled = 
     <SingleSelectDropdown value={draft.mode} options={[
       { value: 'all', label: t('codex.apiService.forwarding.all', '全部可用账号') },
       { value: 'premium_only', label: t('codex.apiService.forwarding.premiumOnly', '只转发高级席位') },
+      { value: 'premium_rotation', label: t('codex.apiService.forwarding.premiumRotation', '高级席位自动调换') },
       { value: 'selected_accounts', label: t('codex.apiService.forwarding.selectedAccounts', '指定账号') },
     ]} onChange={(value) => change({ ...draft, mode: value as CodexForwardingMode })}
       disabled={blocked} ariaLabel={t('codex.apiService.forwarding.title', '转发策略')} />
     <p className="codex-forwarding-hint">{t('codex.apiService.forwarding.hint', '适用于对话和生图请求；继续遵守 Key 范围、模型权限与额度保护。模式切换后点击保存生效。')}</p>
     {draft.mode === 'premium_only' && <p className="codex-forwarding-hint">{t('codex.apiService.forwarding.premiumHint', '仅使用已确认团队身份且套餐为 prolite 的本地 OAuth 高级席位。资料未知或没有可用高级席位时停止转发，请先刷新账号资料。')}</p>}
+    {draft.mode === 'premium_rotation' && <p className="codex-forwarding-hint">{t('codex.apiService.forwarding.rotationHint', '请先在下方配置并启用席位调换。关联 Key 的本地 OAuth 请求只使用已验证持席成员，额度耗尽时尝试调换；其他 Key 和独立 API 授权仍按账号池转发。切换其他策略后停止自动调换，保留配置和未决操作保护。')}</p>}
     {draft.mode === 'selected_accounts' && <fieldset disabled={blocked} className="codex-forwarding-accounts">
       <legend>{t('codex.apiService.forwarding.selectedAccounts', '指定账号')}</legend>
       {[...candidates.map((account) => ({ id: account.id, label: account.email })),

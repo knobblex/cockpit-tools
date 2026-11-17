@@ -27,7 +27,7 @@ async fn native_image_route_once(
 ) -> Result<native_contract::ImageRoute, native_contract::ServiceError> {
     let collection = host.collection().await?;
     let key = native_caller_key(&collection, caller)?;
-    let (_, seat_state) = seat_routing_state()?;
+    let (_, seat_state) = seat_routing_state(&collection, caller.id == NATIVE_INTERNAL_CALLER)?;
     if let Some(key) = key { check_key_budget(key, now_ms(), true)?; }
     if collection.image_generation_mode == CodexLocalAccessImageGenerationMode::Disabled {
         return Err(native_error(

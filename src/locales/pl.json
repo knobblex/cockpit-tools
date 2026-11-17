@@ -5009,9 +5009,11 @@
         "title": "Zasady przekazywania",
         "all": "Wszystkie dostępne konta",
         "premiumOnly": "Tylko miejsca premium",
+        "premiumRotation": "Automatyczna rotacja miejsca premium",
         "selectedAccounts": "Wybrane konta",
         "hint": "Dotyczy żądań czatu i obrazów. Zakresy kluczy, uprawnienia modeli i ochrona limitów nadal obowiązują. Zapisz, aby zastosować wybrany tryb.",
         "premiumHint": "Dozwolone są tylko lokalne konta OAuth z potwierdzoną tożsamością zespołową i planem prolite. Nieznane dane miejsca lub brak uprawnionego miejsca premium zatrzymują przekazywanie. Najpierw odśwież dane konta.",
+        "rotationHint": "Najpierw skonfiguruj i włącz rotację poniżej. Lokalne żądania OAuth powiązanego klucza używają zweryfikowanego posiadacza miejsca i próbują rotacji po wyczerpaniu limitu. Inne klucze i niezależne dostępy API zachowują swoje pule. Inne zasady zatrzymują automatyczną rotację, zachowując ustawienia i ochronę oczekujących operacji.",
         "unavailable": "Niedostępne; odznacz to konto",
         "selectRequired": "Wybierz co najmniej jedno konto."
       },

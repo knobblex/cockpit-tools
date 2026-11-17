@@ -14,9 +14,6 @@ Codex CLI / selected profile -> local authenticated gateway
 React page -> Tauri commands -> Rust collection/runtime -> native engine
 ```
 
-Optional [premium seat rotation](codex-premium-seat-rotation.md) coordinates an
-existing workspace seat and native routing. It is experimental and disabled by default.
-
 **Overview → Forwarding policy** narrows both chat and image candidates before
 scheduling. Existing configurations default to all available accounts. Premium-only
 mode accepts local OAuth accounts with confirmed team identity and a `prolite`
@@ -24,9 +21,22 @@ plan snapshot; unknown identities, personal plans and independent API/official
 grants are excluded. Refresh account details to update that snapshot. Selected-account
 mode accepts accounts from chat/image pools and explicit Key scopes; an empty
 effective list stops forwarding. Save applies the mode while retaining the selection for later
-switches. Key scope, model permissions, seat barriers, cooldowns and quota protection
+switches. Key scope, model permissions, pending seat barriers, cooldowns and quota protection
 still apply. Model discovery, retries and official-to-local fallback use the same
 restriction. Internal directed probes and instance gateways keep their own scope.
+
+**Automatic premium seat rotation** is a fourth forwarding mode, experimental and
+disabled by default. Configure and enable [seat rotation](codex-premium-seat-rotation.md)
+before selecting and saving this mode. Only this mode binds the configured Key's
+local OAuth requests to its verified holder and triggers rotation on quota exhaustion.
+Other Keys and matching independent API/official grants retain their normal pools.
+An unverified holder stops managed OAuth routing; missing or disabled rotation
+configuration stops this mode. All, premium-only and selected-account modes ignore
+the holder binding and do not trigger rotation. Switching modes retains rotation
+settings and history; already-submitted operations still require reconciliation,
+and pending source/target barriers remain effective across all modes and Keys.
+Route preparation rechecks the current policy, as does rotation before submission.
+Existing saved forwarding modes remain unchanged when loading older configurations.
 
 ## Source ownership
 

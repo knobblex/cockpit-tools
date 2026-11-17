@@ -5263,9 +5263,11 @@
         "title": "Forwarding policy",
         "all": "All available accounts",
         "premiumOnly": "Premium seats only",
+        "premiumRotation": "Automatic premium seat rotation",
         "selectedAccounts": "Selected accounts",
         "hint": "Applies to chat and image requests. Key scopes, model permissions and quota protection still apply. Save to apply the selected mode.",
         "premiumHint": "Only local OAuth members with a confirmed team identity and a prolite plan are eligible. Unknown seat details or no eligible premium seat stop forwarding. Refresh account details first.",
+        "rotationHint": "Configure and enable seat rotation below first. Local OAuth requests on the linked Key use the verified seat holder and try rotating when quota runs out. Other Keys and independent API grants keep their account pools. Other policies stop automatic rotation while preserving settings and pending-operation barriers.",
         "unavailable": "Unavailable; deselect this account",
         "selectRequired": "Select at least one account."
       },

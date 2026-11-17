@@ -5009,9 +5009,11 @@
         "title": "Weiterleitungsrichtlinie",
         "all": "Alle verfügbaren Konten",
         "premiumOnly": "Nur Premium-Sitze",
+        "premiumRotation": "Automatischer Premium-Sitzwechsel",
         "selectedAccounts": "Ausgewählte Konten",
         "hint": "Gilt für Chat- und Bildanfragen. Schlüsselbereiche, Modellberechtigungen und Kontingentschutz gelten weiterhin. Speichern, um den gewählten Modus anzuwenden.",
         "premiumHint": "Nur lokale OAuth-Konten mit bestätigter Teamidentität und prolite-Tarif sind zulässig. Bei unbekannten Sitzdaten oder ohne verfügbaren Premium-Sitz wird die Weiterleitung gestoppt. Zuerst die Kontodaten aktualisieren.",
+        "rotationHint": "Zuerst unten den Sitzwechsel konfigurieren und aktivieren. Lokale OAuth-Anfragen des verknüpften Schlüssels verwenden den bestätigten Sitzinhaber und versuchen bei erschöpftem Kontingent zu wechseln. Andere Schlüssel und unabhängige API-Zugänge behalten ihre Kontopools. Andere Richtlinien stoppen den automatischen Wechsel; Einstellungen und Schutz laufender Vorgänge bleiben erhalten.",
         "unavailable": "Nicht verfügbar; Konto abwählen",
         "selectRequired": "Mindestens ein Konto auswählen."
       },
