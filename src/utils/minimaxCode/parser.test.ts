@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { createInstance } from 'i18next';
 
 import { PACKAGE_CODE } from '../../types/codebuddy-suite.ts';
 import type { MinimaxCodeAccount } from '../../types/minimaxCode.ts';
@@ -119,9 +120,11 @@ test('reads details from the top level of the real credit/details body', () => {
   assert.equal(wrapped.data.Response.Data.TotalDosage, 250);
 });
 
-test('lands each credit type in a labelled group instead of 其他', () => {
+test('lands each credit type in a labelled group instead of 其他', async () => {
   // Regression: bare 'free'/'purchased' codes fell through to the `其他` group,
   // so the quota card showed one ugly "其他" row.
+  const i18n = createInstance();
+  await i18n.init({ lng: 'zh-CN', resources: { 'zh-CN': { translation: zhCN } } });
   const groups = getMiniMaxCodeQuotaGroups(
     account({
       base_resp: { status_code: 0 },

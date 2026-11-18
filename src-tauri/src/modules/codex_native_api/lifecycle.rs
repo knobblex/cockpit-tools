@@ -137,6 +137,7 @@ struct DiagnosticCheckpoint {
     upstream_request_scoped: bool,
     failure_phase: Option<String>,
     first_response_ms: Option<u64>,
+    first_upstream_response_ms: Option<u64>,
     truncated: bool,
 }
 
@@ -305,6 +306,18 @@ impl RequestTracker {
         });
     }
 
+    pub(super) fn payload_json(
+        &mut self,
+        stage: &str,
+        transport: &str,
+        headers: &axum::http::HeaderMap,
+        body: &serde_json::Value,
+    ) {
+        if self.capture_payloads {
+            self.payload(stage, transport, headers, &body.to_string());
+        }
+    }
+
     pub(super) fn payload(
         &mut self,
         stage: &str,
@@ -312,13 +325,30 @@ impl RequestTracker {
         headers: &axum::http::HeaderMap,
         body: &str,
     ) {
+        self.payload_with(stage, transport, headers, || body);
+    }
+
+    pub(super) fn payload_with<S: AsRef<str>>(
+        &mut self,
+        stage: &str,
+        transport: &str,
+        headers: &axum::http::HeaderMap,
+        body: impl FnOnce() -> S,
+    ) {
         if !self.capture_payloads {
             return;
         }
         let Some(context) = &mut self.diagnostics else {
             return;
         };
+        if context.payloads.len() >= 16 {
+            context.truncated = true;
+            return;
+        }
         let attempt_sequence = context.attempts.last().map(|v| v.sequence);
+        // 上游改为惰性求值，fork 用 JSON 感知的摘要替代原始截断。
+        let body = body();
+        let body = body.as_ref();
         let (body_summary, truncated) = super::diagnostic_payload::summarize(body);
         let mut payload = DiagnosticPayload {
             stage: stage.into(),
@@ -389,6 +419,7 @@ impl RequestTracker {
                 success: false,
                 elapsed: Duration::ZERO,
                 usage: None,
+                input_text_characters: None,
                 error: Some("client_cancelled".into()),
                 upstream_error_code: None,
                 error_message: None,
@@ -444,6 +475,7 @@ impl RequestTracker {
                 upstream_request_scoped: context.upstream_request_scoped,
                 failure_phase: context.failure_phase.clone(),
                 first_response_ms: context.first_response_ms,
+                first_upstream_response_ms: context.first_upstream_response_ms,
                 truncated: context.truncated,
             }),
             retry: None,
@@ -519,6 +551,14 @@ impl RequestTracker {
         }
     }
 
+    pub(super) fn mark_confirmed_quota_cooldown_recorded(&mut self, account: &str) {
+        if let Some(attempt) = self.diagnostics.as_mut().and_then(|context| context.attempts.last_mut()) {
+            if attempt.account_id == account {
+                attempt.confirmed_quota_cooldown_recorded = true;
+            }
+        }
+    }
+
     pub(super) fn upstream_attempt_count(&self) -> usize {
         self.dispatch_count
     }
@@ -570,6 +610,7 @@ impl RequestTracker {
             context.upstream_request_scoped = before.upstream_request_scoped;
             context.failure_phase = before.failure_phase;
             context.first_response_ms = before.first_response_ms;
+            context.first_upstream_response_ms = before.first_upstream_response_ms;
             context.truncated = before.truncated;
         }
         true
@@ -685,6 +726,12 @@ impl RequestTracker {
         self.response_started = Instant::now();
     }
 
+    pub(super) fn measure_initial_local_prepare(&mut self, elapsed: Duration) {
+        if let Some(context) = &mut self.diagnostics {
+            context.initial_local_prepare_ms = Some(elapsed.as_millis() as u64);
+        }
+    }
+
     pub(super) fn first_response_event(&mut self, event: &serde_json::Value) {
         let is_response = match event["type"].as_str().unwrap_or_default() {
             "" => super::events::response_terminal_kind(event).is_some(),
@@ -706,9 +753,15 @@ impl RequestTracker {
                 }
                 self.overload_response_seen = true;
             }
-            context
-                .first_response_ms
-                .get_or_insert(self.response_started.elapsed().as_millis() as u64);
+            if context.first_response_ms.is_none() {
+                context.first_response_ms =
+                    Some(self.response_started.elapsed().as_millis() as u64);
+                if self.dispatch_open {
+                    // The quota clock starts at every dispatch, before proxy I/O.
+                    context.first_upstream_response_ms =
+                        Some(self.quota_started.elapsed().as_millis() as u64);
+                }
+            }
         }
     }
 
@@ -730,6 +783,30 @@ impl RequestTracker {
         if let Some(attempt) = self.diagnostics.as_mut().and_then(|context| context.attempts.last_mut()) {
             attempt.upstream_request_bytes = Some(bytes as u64);
         }
+    }
+
+    pub(super) fn responses_history_rejection(
+        &mut self,
+        prepared: &super::mapping::Prepared,
+        sent: &serde_json::Value,
+        compact: bool,
+    ) {
+        use super::request_metrics::{ResponsesHistoryRejection, ResponsesHistoryShape};
+        let Some(context) = &mut self.diagnostics else { return };
+        let Some(attempt) = context.attempts.last_mut() else { return };
+        let rejection = ResponsesHistoryRejection {
+            client: ResponsesHistoryShape::from_body(&prepared.source_body),
+            upstream: ResponsesHistoryShape::from_body(sent),
+            compaction_request: compact,
+            rebuilt_history: prepared.rebuild_applied,
+            recovered_continuation: prepared.continuation_recovered,
+        };
+        tracing::warn!(target: "codex_api", request_id=%context.request_id,
+            upstream_request_id=?attempt.upstream_request_id, attempt=attempt.sequence,
+            request_bytes=?attempt.request_size.as_ref().map(|size| size.total_bytes),
+            upstream_request_bytes=?attempt.upstream_request_bytes,
+            history=?rejection, "[NativeAPI][responses_bad_request]");
+        attempt.responses_history_rejection = Some(rejection);
     }
 
     pub(super) fn image_request_models(
@@ -1019,6 +1096,7 @@ impl RequestTracker {
             success: false,
             elapsed: Duration::ZERO,
             usage: None,
+            input_text_characters: self.request_size.as_ref().and_then(|size| size.input_text_characters),
             error: Some("client_cancelled".to_string()),
             upstream_error_code: None,
             error_message: None,
@@ -1276,6 +1354,12 @@ impl RequestTracker {
     pub(super) async fn fail(&mut self, error: &ServiceError) {
         let dispatched = self.dispatch_open;
         self.attempt_error(error);
+        if matches!(error.code, "blocking_capacity_timeout" | "blocking_operation_timeout") {
+            tracing::warn!(target: "codex_api", request_id=%self.diagnostic_request_id(),
+                status=error.status, code=error.code, elapsed_ms=self.started.elapsed().as_millis() as u64,
+                request_bytes=?self.request_size.as_ref().map(|size| size.total_bytes),
+                upstream_attempts=self.dispatch_count, "[NativeAPI][state_timeout]");
+        }
         // Preserve the accounting boundary for requests that never dispatched.
         // An authenticated request still belongs in the host's audit log.
         if self.dispatch_count == 0 && self.peer_ip.is_some() {

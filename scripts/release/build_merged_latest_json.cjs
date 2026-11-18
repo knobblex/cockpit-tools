@@ -109,6 +109,8 @@ function main() {
   const darwinX64Tar = findAsset(assets, /_x64\.app\.tar\.gz$/, 'darwin-x86_64');
   const windowsMsi = findAsset(assets, /_x64_en-US\.msi$/, 'windows-x86_64-msi');
   const windowsNsis = findAsset(assets, /_x64-setup\.exe$/, 'windows-x86_64-nsis');
+  // Windows ARM64 由上游 release.yml 产出，fork 的 build-matrix 不构建它，因此按可选处理。
+  const windowsArmNsis = assets.find((name) => /_arm64-setup\.exe$/.test(name)) || null;
   const linuxX64AppImage = findAsset(assets, /_amd64\.AppImage$/, 'linux-x86_64-appimage');
   const linuxArmAppImage = findAsset(assets, /_aarch64\.AppImage$/, 'linux-aarch64-appimage');
   const linuxX64Deb = findAsset(assets, /_amd64\.deb$/, 'linux-x86_64-deb');
@@ -120,6 +122,9 @@ function main() {
   const darwinX64Entry = buildPlatformEntry(darwinX64Tar, signatures, repo, version, tag);
   const windowsMsiEntry = buildPlatformEntry(windowsMsi, signatures, repo, version, tag);
   const windowsNsisEntry = buildPlatformEntry(windowsNsis, signatures, repo, version, tag);
+  const windowsArmNsisEntry = windowsArmNsis
+    ? buildPlatformEntry(windowsArmNsis, signatures, repo, version, tag)
+    : null;
   const linuxX64AppImageEntry = buildPlatformEntry(linuxX64AppImage, signatures, repo, version, tag);
   const linuxArmAppImageEntry = buildPlatformEntry(linuxArmAppImage, signatures, repo, version, tag);
   const linuxX64DebEntry = buildPlatformEntry(linuxX64Deb, signatures, repo, version, tag);
@@ -140,6 +145,12 @@ function main() {
       'windows-x86_64': windowsMsiEntry,
       'windows-x86_64-msi': cloneEntry(windowsMsiEntry),
       'windows-x86_64-nsis': windowsNsisEntry,
+      ...(windowsArmNsisEntry
+        ? {
+            'windows-aarch64': windowsArmNsisEntry,
+            'windows-aarch64-nsis': cloneEntry(windowsArmNsisEntry),
+          }
+        : {}),
       'linux-x86_64': linuxX64AppImageEntry,
       'linux-x86_64-appimage': cloneEntry(linuxX64AppImageEntry),
       'linux-x86_64-deb': linuxX64DebEntry,

@@ -232,7 +232,13 @@ fn seat_validation_survives_request_stack_pressure() {
     legacy.member_account_ids = vec![holder.id.clone(), "missing-candidate".into()];
     legacy.probe_model = api_service_routable_codex_model_ids()
         .into_iter()
-        .find(|model| native_default_codex_model(model) && !native_is_reserve_model(model))
+        // 上游把默认 Codex 模型列表改为快照 helper，这里按同一语义判定。
+        .find(|model| {
+            default_codex_model_ids()
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(model.trim()))
+                && !native_is_reserve_model(model)
+        })
         .expect("at least one ordinary Codex model is routable");
     let mut collection: CodexLocalAccessCollection = serde_json::from_value(json!({
         "enabled": true, "port": 1455, "apiKey": "fixture-secret",

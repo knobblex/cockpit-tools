@@ -1502,7 +1502,7 @@ const DEEPSEEK_OWNED_TOP_LEVEL_KEYS: &[&str] = &["preferred_auth_method"];
 /// 它们由本应用的「上下文管理」按账号写入，属于用户显式设置，切号不覆盖。
 const DEEPSEEK_CONFLICT_TOP_LEVEL_KEYS: &[&str] = &[
     "base_instructions",
-    "model_instructions_file",
+    CODEX_MODEL_INSTRUCTIONS_FILE_KEY,
     "compact_prompt",
     "experimental_compact_prompt_file",
     "model_verbosity",
@@ -2394,6 +2394,9 @@ fn normalize_optional_json_scalar(value: Option<&serde_json::Value>) -> Option<S
     })
 }
 
+const ACCOUNT_CHECK_ID_KEYS: &[&str] = &["account_id", "id", "chatgpt_account_id", "workspace_id"];
+const ACCOUNT_CHECK_ORG_KEYS: &[&str] = &["organization_id", "org_id", "workspace_id"];
+
 fn extract_account_record_field(
     record: &serde_json::Map<String, serde_json::Value>,
     keys: &[&str],
@@ -2406,53 +2409,113 @@ fn extract_account_record_field(
     None
 }
 
-fn collect_account_records(payload: &serde_json::Value) -> Vec<serde_json::Value> {
-    let mut records = Vec::new();
+fn extract_account_check_record_field(
+    item: &crate::modules::codex_quota::AccountCheckRecord,
+    keys: &[&str],
+) -> Option<String> {
+    let outer = item.node.as_object()?;
+    let inner = crate::modules::codex_quota::account_check_record_parts(item)
+        .map(|(account_record, _)| account_record);
+    inner
+        .and_then(|record| extract_account_record_field(record, keys))
+        .or_else(|| extract_account_record_field(outer, keys))
+}
 
-    if let Some(accounts_value) = payload.get("accounts") {
-        if let Some(array) = accounts_value.as_array() {
-            for item in array {
-                if item.is_object() {
-                    records.push(item.clone());
-                }
-            }
-        } else if let Some(object) = accounts_value.as_object() {
-            for value in object.values() {
-                if value.is_object() {
-                    records.push(value.clone());
-                }
-            }
-        }
-    }
+fn record_key_equals(item: &crate::modules::codex_quota::AccountCheckRecord, expected: &str) -> bool {
+    normalize_optional_ref(item.key.as_deref()).as_deref() == Some(expected)
+}
 
-    if records.is_empty() {
-        if let Some(array) = payload.as_array() {
-            for item in array {
-                if item.is_object() {
-                    records.push(item.clone());
-                }
-            }
-        }
-    }
+fn find_account_check_record_by_account_id<'a>(
+    records: &'a [crate::modules::codex_quota::AccountCheckRecord],
+    expected_id: &str,
+) -> Option<&'a crate::modules::codex_quota::AccountCheckRecord> {
+    records
+        .iter()
+        .find(|item| {
+            record_key_equals(item, expected_id)
+                && extract_account_check_record_field(item, ACCOUNT_CHECK_ID_KEYS)
+                    .as_deref()
+                    .is_none_or(|candidate| candidate == expected_id)
+        })
+        .or_else(|| {
+            records.iter().find(|item| {
+                extract_account_check_record_field(item, ACCOUNT_CHECK_ID_KEYS).as_deref()
+                    == Some(expected_id)
+            })
+        })
+}
+
+fn key_looks_like_explicit_workspace_id(key: &str) -> bool {
+    key.starts_with("account-")
+        || key.starts_with("acct_")
+        || uuid::Uuid::parse_str(key).is_ok()
+}
+
+fn find_account_check_record_by_org_id<'a>(
+    records: &'a [crate::modules::codex_quota::AccountCheckRecord],
+    expected_org_id: &str,
+    expected_account_id: Option<&str>,
+) -> Option<&'a crate::modules::codex_quota::AccountCheckRecord> {
+    let compatible_with_expected_account = |item: &crate::modules::codex_quota::AccountCheckRecord| {
+        let Some(expected_id) = expected_account_id else {
+            return true;
+        };
+        let candidate_compatible = extract_account_check_record_field(item, ACCOUNT_CHECK_ID_KEYS)
+            .as_deref()
+            .is_none_or(|candidate| candidate == expected_id);
+        let key_compatible = normalize_optional_ref(item.key.as_deref())
+            .as_deref()
+            .is_none_or(|key| {
+                !key_looks_like_explicit_workspace_id(key)
+                    || key == expected_id
+                    || key == expected_org_id
+            });
+        candidate_compatible && key_compatible
+    };
 
     records
+        .iter()
+        .find(|item| {
+            record_key_equals(item, expected_org_id) && compatible_with_expected_account(item)
+        })
+        .or_else(|| {
+            records.iter().find(|item| {
+                compatible_with_expected_account(item)
+                    && extract_account_check_record_field(item, ACCOUNT_CHECK_ORG_KEYS).as_deref()
+                        == Some(expected_org_id)
+            })
+        })
+}
+
+fn collect_account_records(
+    payload: &serde_json::Value,
+) -> Vec<crate::modules::codex_quota::AccountCheckRecord> {
+    crate::modules::codex_quota::collect_subscription_account_records(payload)
+}
+
+fn resolve_account_check_target_account_id(account: &CodexAccount) -> Option<String> {
+    normalize_optional_ref(account.account_id.as_deref())
+        .or_else(|| extract_chatgpt_account_id_from_access_token(account.tokens.access_token.trim()))
 }
 
 fn parse_account_profile_from_check_response(
     payload: &serde_json::Value,
     account: &CodexAccount,
-) -> (Option<String>, Option<String>, Option<String>) {
-    // accounts/check may wrap profile fields under `account`, alongside the
-    // entitlement. Unwrap only here: other account-check consumers need both.
+) -> Result<(Option<String>, Option<String>, Option<String>), String> {
+    // accounts/check 可能把资料字段包在 `account` 下与 entitlement 并列。
+    // 仅在此处解包：其他 account-check 消费者两者都需要。
     let records = collect_account_records(payload)
         .into_iter()
-        .filter_map(|record| match record.get("account") {
-            Some(account) => account.as_object().map(|_| account.clone()),
-            None => Some(record),
+        .map(|record| match record.node.get("account") {
+            Some(inner) if inner.is_object() => crate::modules::codex_quota::AccountCheckRecord {
+                key: record.key.clone(),
+                node: inner.clone(),
+            },
+            _ => record,
         })
         .collect::<Vec<_>>();
     if records.is_empty() {
-        return (None, None, None);
+        return Err("官方账号检查响应中未包含可用工作区记录".to_string());
     }
 
     let ordering_first_id = payload
@@ -2461,78 +2524,44 @@ fn parse_account_profile_from_check_response(
         .and_then(|items| items.first())
         .and_then(|value| value.as_str())
         .and_then(|value| normalize_optional_ref(Some(value)));
-    // Match the same explicit workspace sent in ChatGPT-Account-Id. A profile
-    // refresh must never switch it to the token's default or another workspace.
-    let expected_account_id = normalize_optional_ref(account.account_id.as_deref())
-        .or_else(|| extract_chatgpt_account_id_from_access_token(&account.tokens.access_token));
+    let expected_account_id = resolve_account_check_target_account_id(account);
     let expected_org_id = normalize_optional_ref(account.organization_id.as_deref());
 
-    let mut selected_record: Option<serde_json::Value> = None;
-
-    if let Some(expected_id) = expected_account_id.as_deref() {
-        selected_record = records
-            .iter()
-            .find(|item| {
-                let Some(record) = item.as_object() else {
-                    return false;
-                };
-                let candidate_id = extract_account_record_field(
-                    record,
-                    &["id", "account_id", "chatgpt_account_id", "workspace_id"],
-                );
-                normalize_optional_ref(candidate_id.as_deref()) == Some(expected_id.to_string())
+    let selected = if expected_account_id.is_some() || expected_org_id.is_some() {
+        let by_account = expected_account_id
+            .as_deref()
+            .and_then(|expected_id| find_account_check_record_by_account_id(&records, expected_id));
+        let by_org = if by_account.is_none() {
+            expected_org_id.as_deref().and_then(|org_id| {
+                find_account_check_record_by_org_id(
+                    &records,
+                    org_id,
+                    expected_account_id.as_deref(),
+                )
             })
-            .cloned();
-        // Returning no fields prevents the merge from overwriting the selected
-        // account with the response ordering/default when the target is absent.
-        if selected_record.is_none() {
-            return (None, None, None);
+        } else {
+            None
+        };
+        match by_account.or(by_org) {
+            Some(record) => record,
+            None => {
+                return Err("官方账号检查响应中未找到目标工作区资料".to_string());
+            }
         }
-    }
-
-    if selected_record.is_none() {
-        if let Some(ordering_id) = ordering_first_id.as_deref() {
-            selected_record = records
-                .iter()
-                .find(|item| {
-                    let Some(record) = item.as_object() else {
-                        return false;
-                    };
-                    let candidate_id = extract_account_record_field(
-                        record,
-                        &["id", "account_id", "chatgpt_account_id", "workspace_id"],
-                    );
-                    normalize_optional_ref(candidate_id.as_deref()) == Some(ordering_id.to_string())
-                })
-                .cloned();
-        }
-    }
-
-    if selected_record.is_none() {
-        if let Some(org_id) = expected_org_id.as_deref() {
-            selected_record = records
-                .iter()
-                .find(|item| {
-                    let Some(record) = item.as_object() else {
-                        return false;
-                    };
-                    let candidate_org = extract_account_record_field(
-                        record,
-                        &["organization_id", "org_id", "workspace_id"],
-                    );
-                    normalize_optional_ref(candidate_org.as_deref()) == Some(org_id.to_string())
-                })
-                .cloned();
-        }
-    }
-
-    let selected = selected_record.unwrap_or_else(|| records[0].clone());
-    let Some(record) = selected.as_object() else {
-        return (None, None, None);
+    } else {
+        ordering_first_id
+            .as_deref()
+            .and_then(|ordering_id| find_account_check_record_by_account_id(&records, ordering_id))
+            .or_else(|| {
+                records
+                    .iter()
+                    .find(|item| crate::modules::codex_quota::account_check_record_is_default(item))
+            })
+            .unwrap_or(&records[0])
     };
 
-    let account_name = extract_account_record_field(
-        record,
+    let account_name = extract_account_check_record_field(
+        selected,
         &[
             "name",
             "display_name",
@@ -2542,8 +2571,8 @@ fn parse_account_profile_from_check_response(
             "title",
         ],
     );
-    let account_structure = extract_account_record_field(
-        record,
+    let account_structure = extract_account_check_record_field(
+        selected,
         &[
             "structure",
             "account_structure",
@@ -2552,12 +2581,26 @@ fn parse_account_profile_from_check_response(
             "account_type",
         ],
     );
-    let account_id = extract_account_record_field(
-        record,
-        &["id", "account_id", "chatgpt_account_id", "workspace_id"],
-    );
+    let account_id = extract_account_check_record_field(selected, ACCOUNT_CHECK_ID_KEYS);
 
-    (account_name, account_structure, account_id)
+    if account_name.is_none() && account_structure.is_none() && account_id.is_none() {
+        return Err("官方账号检查响应缺少目标工作区资料".to_string());
+    }
+
+    if account_name.is_none() {
+        let is_personal_structure = account_structure
+            .as_deref()
+            .is_some_and(|value| value.to_ascii_lowercase().contains("personal"));
+        let remote_plan = crate::modules::codex_quota::account_check_record_plan_type(selected);
+        let effective_plan = remote_plan.as_deref().or(account.plan_type.as_deref());
+        let requires_workspace_name =
+            !is_personal_structure && crate::modules::codex_wakeup::is_team_like_plan(effective_plan);
+        if requires_workspace_name {
+            return Err("官方账号检查响应缺少 Team/Business 工作区名称".to_string());
+        }
+    }
+
+    Ok((account_name, account_structure, account_id))
 }
 
 #[cfg(test)]
@@ -2590,7 +2633,8 @@ mod account_profile_response_tests {
                 }
             }),
             &account(Some("team")),
-        );
+        )
+        .unwrap();
         assert_eq!(
             result,
             (Some("Team".into()), Some("workspace".into()), Some("team".into()))
@@ -2608,7 +2652,7 @@ mod account_profile_response_tests {
             serde_json::json!([profile]),
         ] {
             assert_eq!(
-                parse_account_profile_from_check_response(&payload, &account(Some("team"))),
+                parse_account_profile_from_check_response(&payload, &account(Some("team"))).unwrap(),
                 (Some("Team".into()), Some("team".into()), Some("team".into())),
             );
         }
@@ -2624,9 +2668,14 @@ mod account_profile_response_tests {
             serde_json::json!({"accounts": [{"id": "team", "structure": "workspace", "account": null}]}),
         ] {
             let original = account(Some("team"));
-            let (name, structure, remote_id) =
-                parse_account_profile_from_check_response(&payload, &original);
-            assert_eq!((&name, &structure, &remote_id), (&None, &None, &None));
+            // 目标工作区在响应中缺失时必须报错，不能回退到响应排序/默认工作区。
+            let error = parse_account_profile_from_check_response(&payload, &original).unwrap_err();
+            assert!(!error.is_empty());
+            let (name, structure, remote_id): (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ) = (None, None, None);
             let mut current = original.clone();
             assert!(!merge_codex_account_profile(
                 &mut current, &original, name, structure, remote_id
@@ -2650,7 +2699,8 @@ mod account_profile_response_tests {
                 {"id": "team", "structure": "workspace"}
             ]}),
             &account,
-        );
+        )
+        .unwrap();
         assert_eq!(result.1.as_deref(), Some("workspace"));
         assert_eq!(result.2.as_deref(), Some("team"));
     }
@@ -2664,10 +2714,7 @@ mod account_profile_response_tests {
         account.tokens.access_token =
             format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(claims.to_string()));
         let payload = serde_json::json!({"accounts": [{"id": "other", "structure": "workspace"}]});
-        assert_eq!(
-            parse_account_profile_from_check_response(&payload, &account),
-            (None, None, None)
-        );
+        assert!(parse_account_profile_from_check_response(&payload, &account).is_err());
     }
 
     #[test]
@@ -2678,7 +2725,8 @@ mod account_profile_response_tests {
                 {"account": {"id": "second", "structure": "workspace"}}
             ]}),
             &account(None),
-        );
+        )
+        .unwrap();
         assert_eq!(result.2.as_deref(), Some("second"));
     }
 
@@ -2693,7 +2741,8 @@ mod account_profile_response_tests {
                 &serde_json::json!({"accounts": [{"account": {"id": "team", "structure": structure},
                     "entitlement": {"subscription_plan": "business"}}]}),
                 &account(Some("team")),
-            );
+            )
+            .unwrap();
             assert_eq!(result.1.as_deref(), structure.as_str());
             assert_eq!(result.2.as_deref(), Some("team"));
         }

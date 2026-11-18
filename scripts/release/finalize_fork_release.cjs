@@ -11,7 +11,10 @@ const { isAllowedReleaseAsset } = require('./stage_release_assets.cjs');
 const REPO = 'knobblex/cockpit-tools';
 const ROOT = path.resolve(__dirname, '../..');
 const ARCHES = ['aarch64', 'x64', 'universal'];
-const TARGETS = Object.keys(TARGET_SPECS);
+// Fork 的 build-matrix 不构建 Windows ARM64（上游 release.yml 才构建），
+// 因此 finalize 只校验 fork 实际产出的 10 个 target。
+const FORK_UNSUPPORTED_TARGETS = new Set(['windows-aarch64-nsis']);
+const TARGETS = Object.keys(TARGET_SPECS).filter((target) => !FORK_UNSUPPORTED_TARGETS.has(target));
 
 function run(executable, args, options = {}) {
   const result = spawnSync(executable, args, {
