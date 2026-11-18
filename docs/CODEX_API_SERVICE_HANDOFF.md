@@ -51,6 +51,25 @@ Existing saved forwarding modes remain unchanged when loading older configuratio
 
 ## Change and diagnosis rules
 
+Request details expose optional **request/response summary recording**, disabled
+by default. Enable it under **Settings → Codex** to capture new requests only;
+inspect saved summaries in **API Service → request details**.
+The [summary builder](../src-tauri/src/modules/codex_native_api/diagnostic_payload.rs)
+keeps routing/error fields, array counts, recent input samples and short text
+previews instead of full conversation bodies. Allowlisted request/response
+headers include correlation IDs and retry hints; authentication and cookie
+headers are excluded. Prompt previews can still contain private user text.
+Responses are saved separately from requests, including HTTP rejection bodies;
+stream snapshots replace the previous snapshot for that attempt and retain its
+response headers. An upstream's generic `Bad Request` remains generic in the log.
+
+The [diagnostic store](../src-tauri/src/modules/codex_local_access_request_diagnostics.rs)
+defines the rolling age, row and payload-byte limits. Old summaries are evicted
+before attempt metadata when the byte budget is exceeded; header storage counts
+toward that budget. Clearing summaries retains attempts and usage. Capture and
+storage queues are bounded and may drop optional diagnostics under load; they
+do not guarantee complete wire recording. Historical bodies are not backfilled.
+
 - Read `codex_local_access_get_state` for service status, endpoint and errors.
   Follow request IDs through `codex_local_access_query_request_logs`; use the
   built-in test only when a real upstream request is authorized.

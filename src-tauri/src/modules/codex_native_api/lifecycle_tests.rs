@@ -66,6 +66,45 @@ include!("lifecycle_dispatch_tests.rs");
 include!("network_recovery_lifecycle_tests.rs");
 
 #[tokio::test]
+async fn diagnostic_summaries_keep_response_headers_latest_event_and_ingress_when_rolling() {
+    let (mut tracker, _host, _activity, _stop, _gate) = fixture().await;
+    tracker.capture_payloads = true;
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("x-oai-request-id", "req-400".parse().unwrap());
+    headers.insert("retry-after", "3".parse().unwrap());
+    headers.insert("set-cookie", "secret".parse().unwrap());
+    tracker.payload("client_request", "http", &headers, r#"{"model":"m"}"#);
+    tracker.upstream_response_headers(&headers);
+    for index in 0..30 {
+        tracker.payload("upstream_response", "http", &axum::http::HeaderMap::new(),
+            &json!({"type":"response.output_text.delta","delta":index}).to_string());
+    }
+    let context = tracker.diagnostics.as_ref().unwrap();
+    assert_eq!(context.payloads.len(), 2);
+    let response = &context.payloads[1];
+    assert_eq!(response.headers["x-oai-request-id"], "req-400");
+    assert_eq!(response.headers["retry-after"], "3");
+    assert!(!response.headers.contains_key("set-cookie"));
+    assert_eq!(serde_json::from_str::<Value>(&response.body).unwrap()["delta"], 29);
+    assert_eq!(context.attempts[0].upstream_request_id.as_deref(), Some("req-400"));
+    for _ in 0..20 {
+        tracker.attempt_result(400, false, Some("upstream_http_error"));
+        tracker.begin_attempt("http");
+        tracker.payload("upstream_request", "http", &headers, r#"{"model":"m"}"#);
+        tracker.upstream_response_headers(&headers);
+    }
+    tracker.attempt_result(400, false, Some("upstream_http_error"));
+    let context = tracker.diagnostics.as_ref().unwrap();
+    assert_eq!(context.payloads.len(), 8);
+    assert_eq!(context.payloads[0].stage, "client_request");
+    assert_eq!(context.payloads.last().unwrap().stage, "upstream_response");
+    assert!(context.truncated);
+    tracker.capture_payloads = false;
+    tracker.payload("upstream_response", "http", &headers, "\"disabled\"");
+    assert!(!tracker.diagnostics.as_ref().unwrap().payloads.last().unwrap().body.contains("disabled"));
+}
+
+#[tokio::test]
 async fn native_lifecycle_local_quota_checks_are_not_inference_dispatch() {
     let (mut tracker, host, _activity, _stop, _gate) = fixture().await;
     tracker.quota_account = Some("quota-check-only".into());

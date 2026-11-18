@@ -647,6 +647,7 @@ async fn send_inner(
                 deadline,
                 &prepared.route.model,
                 super::grok_errors::applies(&prepared.route),
+                tracker,
             )
             .await?;
             exhausted = inspected.10.as_ref().and_then(super::quota_exhaustion::code);
@@ -1142,6 +1143,7 @@ pub(super) async fn inspect_status_error(
     deadline: Deadline,
     model: &str,
     grok: bool,
+    tracker: &mut RequestTracker,
 ) -> Result<
     (
         reqwest::Response,
@@ -1191,6 +1193,7 @@ pub(super) async fn inspect_status_error(
             None => break,
         }
     }
+    tracker.payload("upstream_response", "http", &headers, &String::from_utf8_lossy(&bytes));
     let value = serde_json::from_slice::<Value>(&bytes).ok();
     let (normalized_status, grok_wait) = if grok {
         super::grok_errors::classify(

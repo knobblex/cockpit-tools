@@ -133,6 +133,25 @@ test('reports upstream model differences only on attempts with explicit differin
   hook.unmount();
 });
 
+test('response summaries have a separate selector label and expose saved response headers', async () => {
+  const hook = harness({ success: false, httpStatus: 400 }, { detail: detail({ payloads: [{
+    stage: 'upstream_response', attemptSequence: 1, transport: 'http', contentType: 'application/json',
+    headers: { 'x-oai-request-id': 'req-400', 'retry-after': '3' },
+    body: '{"detail":"Bad Request"}', truncated: false, originalBytes: 24, sha256: '',
+  }] }) });
+  await settlePromises();
+  let tree = hook.flush();
+  const dropdown = nodes(tree, (node) => node.type === 'SingleSelectDropdown')[0];
+  assert.equal(dropdown.props.options[0].label, 'codex.requestDiagnostics.upstreamResponsePayload:1');
+  assert.match(text(tree), /Bad Request/);
+  const toggle = nodes(tree, (node) => node.props?.className?.includes('codex-request-headers-toggle'))[0];
+  toggle.props.onClick();
+  tree = hook.flush();
+  assert.match(text(tree), /req-400/);
+  assert.match(text(tree), /retry-after/);
+  hook.unmount();
+});
+
 test('official rejection and same-account local fallback retain both attempts, causes and upstream request IDs without bodies', async () => {
   for (const success of [true, false]) {
     const hook = harness({ success }, { detail: detail({ attempts: [

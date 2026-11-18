@@ -243,33 +243,7 @@ fn diagnostic_optional(value: Option<String>, limit: usize) -> Option<String> {
 }
 
 fn diagnostic_sensitive_field(key: &str) -> bool {
-    let normalized = key.to_ascii_lowercase().replace(['-', '_', ' '], "");
-    matches!(
-        normalized.as_str(),
-        "authorization"
-            | "proxyauthorization"
-            | "cookie"
-            | "setcookie"
-            | "apikey"
-            | "xapikey"
-            | "accesskey"
-            | "accesskeyid"
-            | "secretaccesskey"
-            | "token"
-            | "accesstoken"
-            | "refreshtoken"
-            | "idtoken"
-            | "password"
-            | "passwd"
-            | "clientsecret"
-            | "secret"
-            | "privatekey"
-            | "agentprivatekey"
-            | "credential"
-            | "credentials"
-            | "assertion"
-            | "clientassertion"
-    )
+    super::codex_native_api::diagnostic_payload::sensitive_field(key)
 }
 
 fn redact_diagnostic_json(value: &mut Value, depth: usize) {
@@ -362,21 +336,12 @@ fn normalize_request_diagnostics(
     let mut remaining = REQUEST_DIAGNOSTICS_REQUEST_BYTES;
     detail
         .payloads
-        .retain(|payload| matches!(payload.stage.as_str(), "client" | "upstream"));
+        .retain(|payload| matches!(payload.stage.as_str(), "client" | "upstream" | "upstream_response"));
     for payload in &mut detail.payloads {
         payload.transport = diagnostic_truncate(&payload.transport, 32);
         payload.content_type = diagnostic_truncate(&payload.content_type, 128);
-        payload.headers.retain(|key, _| {
-            matches!(
-                key.to_ascii_lowercase().as_str(),
-                "content-type"
-                    | "content-encoding"
-                    | "accept"
-                    | "user-agent"
-                    | "openai-beta"
-                    | "x-request-id"
-            )
-        });
+        payload.headers.retain(|key, _| super::codex_native_api::diagnostic_payload::allowed_header(key));
+        payload.headers = std::mem::take(&mut payload.headers).into_iter().take(32).collect();
         for value in payload.headers.values_mut() {
             *value = diagnostic_truncate(value, 256);
         }
@@ -632,11 +597,8 @@ fn insert_request_diagnostic(
     };
     let attempts = serde_json::to_string(&detail.attempts).map_err(|error| error.to_string())?;
     let payloads = serde_json::to_string(&detail.payloads).map_err(|error| error.to_string())?;
-    let payload_bytes: usize = detail
-        .payloads
-        .iter()
-        .map(|payload| payload.body.len())
-        .sum();
+    // Include saved headers and JSON overhead in the rolling storage budget.
+    let payload_bytes = if detail.payloads.is_empty() { 0 } else { payloads.len() };
     conn.execute(r#"INSERT INTO request_diagnostics
         (request_id,captured_at_ms,first_response_ms,failure_phase,attempts_json,payloads_json,payload_bytes,truncated,client_identity_captured,client_session_id,client_thread_id,client_identity_metadata_captured,client_installation_id,client_chatgpt_account_id)
         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) ON CONFLICT(request_id) DO UPDATE SET

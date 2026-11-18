@@ -34,6 +34,7 @@ mod connection_error;
 pub mod contract;
 pub mod continuity_bridge;
 pub mod diagnostics;
+pub(crate) mod diagnostic_payload;
 mod deadline;
 mod edge;
 mod events;

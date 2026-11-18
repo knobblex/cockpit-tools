@@ -116,6 +116,37 @@ mod request_diagnostics_tests {
         conn
     }
 
+    #[test]
+    fn request_diagnostics_native_response_summary_survives_mapping_storage_and_clear() {
+        use crate::modules::codex_native_api::diagnostics::{DiagnosticContext, DiagnosticPayload};
+        let context = DiagnosticContext {
+            request_id: "response-400".into(), started_at_ms: 1,
+            payloads: vec![DiagnosticPayload {
+                stage: "upstream_response".into(), attempt_sequence: Some(1),
+                content_type: "application/json".into(), transport: "http".into(),
+                body: r#"{"detail":"Bad Request","token":"secret"}"#.into(),
+                headers: HashMap::from([("x-oai-request-id".into(), "req-400".into()),
+                    ("retry-after".into(), "3".into()), ("set-cookie".into(), "secret".into())]),
+                original_bytes: 400, truncated: true,
+            }], ..Default::default()
+        };
+        assert!(native_diagnostic_detail(context.clone(), false).payloads.is_empty());
+        let detail = native_diagnostic_detail(context, true);
+        assert_eq!(detail.payloads[0].stage, "upstream_response");
+        assert!(detail.payloads[0].truncated);
+        assert!(!detail.payloads[0].body.contains("secret"));
+        let conn = memory_logs();
+        insert_request_diagnostic(&conn, detail).unwrap();
+        let saved = read_request_diagnostic(&conn, "response-400").unwrap().unwrap();
+        assert_eq!(saved.payloads[0].headers["x-oai-request-id"], "req-400");
+        assert_eq!(saved.payloads[0].headers["retry-after"], "3");
+        assert!(!saved.payloads[0].headers.contains_key("set-cookie"));
+        let bytes: i64 = conn.query_row("SELECT payload_bytes FROM request_diagnostics", [], |r| r.get(0)).unwrap();
+        assert!(bytes as usize > saved.payloads[0].body.len());
+        assert_eq!(clear_request_payloads_from_db(&conn).unwrap(), 1);
+        assert!(read_request_diagnostic(&conn, "response-400").unwrap().unwrap().payloads.is_empty());
+    }
+
     fn authorization_fallback_attempt() -> CodexLocalAccessRequestAttempt {
         CodexLocalAccessRequestAttempt {
             sequence: 2, account_id: "account-a".into(), model_id: "gpt-5.5".into(),

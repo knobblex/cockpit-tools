@@ -106,11 +106,16 @@ fn native_diagnostic_detail(
                     let stage = match item.stage.as_str() {
                         "client" | "client_request" => "client",
                         "upstream" | "upstream_request" => "upstream",
+                        "upstream_response" => "upstream_response",
                         _ => return None,
                     };
-                    // Never mark an unredacted, truncated string as trusted. The host normalizer
-                    // parses/redacts complete JSON; other formats and oversized input are omitted.
+                    // Native capture produces bounded, redacted JSON summaries. The host
+                    // normalizer validates/redacts them again before persistence.
                     let oversized = item.body.len() > 256 * 1024;
+                    // A truncation flag alone is not proof of redaction. Only a complete
+                    // summary may retain it; malformed input must take the host's omit path.
+                    let summary_truncated = item.truncated && item.body.len() <= 8 * 1024
+                        && serde_json::from_str::<Value>(&item.body).is_ok();
                     Some(CodexLocalAccessRequestPayload {
                         stage: stage.into(),
                         attempt_sequence: item.attempt_sequence,
@@ -122,7 +127,7 @@ fn native_diagnostic_detail(
                         } else {
                             item.body
                         },
-                        truncated: false,
+                        truncated: oversized || summary_truncated,
                         original_bytes: item.original_bytes,
                         sha256: String::new(),
                     })
@@ -754,9 +759,10 @@ mod native_diagnostic_tests {
             ..Default::default()
         };
         let enabled = native_diagnostic_detail(context.clone(), true);
-        assert_eq!(enabled.payloads.len(), 2);
+        assert_eq!(enabled.payloads.len(), 3);
         assert_eq!(enabled.payloads[0].stage, "client");
         assert_eq!(enabled.payloads[1].stage, "upstream");
+        assert_eq!(enabled.payloads[2].stage, "upstream_response");
         assert!(enabled
             .payloads
             .iter()

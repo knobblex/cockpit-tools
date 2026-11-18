@@ -74,6 +74,13 @@ async fn identity_http(State(source): State<Arc<IdentitySource>>, request: Reque
     let (parts, body) = request.into_parts();
     let bytes = to_bytes(body, 4 * 1024 * 1024).await.unwrap();
     let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    if value.get("diagnostic_rejection").and_then(Value::as_bool) == Some(true) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            [("x-oai-request-id", "req-diagnostic-400"), ("retry-after", "3"), ("set-cookie", "fixture-secret")],
+            Json(json!({"detail":"Bad Request", "error":{"code":"invalid_input","message":"Fixture rejected input"}})),
+        ).into_response();
+    }
     let account = parts
         .headers
         .get("x-test-account")
@@ -170,6 +177,7 @@ struct IdentityHost {
     native_socket: bool,
     retry: bool,
     oauth: AtomicBool,
+    capture_payloads: AtomicBool,
     diagnostics: Mutex<Vec<DiagnosticContext>>,
 }
 impl Host for IdentityHost {
@@ -289,6 +297,9 @@ impl Host for IdentityHost {
             self.diagnostics.lock().unwrap().push(context);
         })
     }
+    fn payload_logging_enabled(&self) -> BoxFuture<'_, bool> {
+        Box::pin(async { self.capture_payloads.load(Ordering::SeqCst) })
+    }
 }
 async fn identity_fixture(
     wire: WireApi,
@@ -341,6 +352,7 @@ async fn identity_fixture_with_options(
         native_socket,
         retry,
         oauth: AtomicBool::new(false),
+        capture_payloads: AtomicBool::new(false),
         diagnostics: Mutex::new(vec![]),
     });
     let dir = tempfile::tempdir().unwrap();
@@ -379,6 +391,34 @@ async fn captured(host: &IdentityHost, count: usize) -> Vec<DiagnosticContext> {
     })
     .await
     .unwrap()
+}
+
+#[tokio::test]
+async fn diagnostic_summaries_capture_real_400_response_and_request_headers_without_full_body() {
+    let (mut handle, host, _source, task, _dir) = identity_fixture(WireApi::Responses, false, false).await;
+    host.capture_payloads.store(true, Ordering::SeqCst);
+    let response = http_client().post(format!("http://{}/v1/responses", handle.addr))
+        .bearer_auth("key").header("user-agent", "diagnostic-fixture")
+        .json(&json!({"model":"m","input":"x".repeat(300_000), "diagnostic_rejection":true}))
+        .send().await.unwrap();
+    assert_eq!(response.status(), 400);
+    let _: Value = response.json().await.unwrap();
+    let contexts = captured(&host, 1).await;
+    let context = &contexts[0];
+    let ingress = context.payloads.iter().find(|p| p.stage == "client_request").unwrap();
+    assert_eq!(ingress.headers["user-agent"], "diagnostic-fixture");
+    assert!(!ingress.headers.contains_key("authorization"));
+    assert!(ingress.body.len() < 8192);
+    assert_eq!(ingress.original_bytes > 300_000, true);
+    assert!(ingress.truncated);
+    let response = context.payloads.iter().find(|p| p.stage == "upstream_response").unwrap();
+    assert_eq!(response.headers["x-oai-request-id"], "req-diagnostic-400");
+    assert!(!response.headers.contains_key("set-cookie"));
+    assert!(response.body.contains("invalid_input"));
+    assert!(response.body.contains("Bad Request"));
+    assert_eq!(context.attempts[0].upstream_request_id.as_deref(), Some("req-diagnostic-400"));
+    handle.shutdown(Duration::from_secs(2)).await.unwrap();
+    task.abort();
 }
 
 #[tokio::test]

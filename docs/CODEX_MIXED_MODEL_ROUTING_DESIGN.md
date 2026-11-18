@@ -434,14 +434,10 @@ Chat Completions, tool schemas, images, streaming, retries, and usage. They do n
 perform model inference, but they can technically see conversation content and
 tool parameters.
 
-Cockpit's request-log database should continue to store metadata only. Add two
-hardening rules for mixed routing:
-
-- persist `routeKind`, `routeId`, `providerAccountId`, `clientModel`, and
-  `upstreamModel`, but never prompt or response bodies;
-- sanitize and bound stored `error_message` so an upstream error cannot echo and
-  persist request content. Full raw upstream bodies may only appear in an explicit,
-  temporary debug mode and must be redacted before issue export.
+For current log capture, redaction and retention behavior, see the
+[API service diagnosis rules](CODEX_API_SERVICE_HANDOFF.md#change-and-diagnosis-rules).
+Mixed routing should additionally preserve `routeKind`, `routeId`,
+`providerAccountId`, `clientModel`, and `upstreamModel` as routing metadata.
 
 Provider requests must use a newly created HTTP request with:
 
@@ -470,7 +466,7 @@ shows:
 - upstream model;
 - protocol;
 - latency and HTTP status;
-- no prompt/response body in persistent diagnostics.
+- the diagnostic capture preference described in the API service diagnosis rules.
 
 ## Compatibility Guardrails
 

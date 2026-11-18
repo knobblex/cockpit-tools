@@ -188,6 +188,8 @@ export function CodexRequestDetailModal({ event, accountDisplayNames = new Map()
             {detail.payloads.length === 0 ? <div className="codex-request-payload-empty"><FileJson size={24} aria-hidden="true" /><p>{t('codex.requestDiagnostics.noPayloads')}</p></div> : <div className="codex-request-payload-panel">
               <SingleSelectDropdown value={selectedPayload} options={detail.payloads.map((item, index) => ({ value: String(index), label: item.stage === 'client'
                 ? t('codex.requestDiagnostics.clientPayload')
+                : item.stage === 'upstream_response'
+                ? t('codex.requestDiagnostics.upstreamResponsePayload', { sequence: item.attemptSequence ?? index })
                 : t('codex.requestDiagnostics.upstreamPayload', { sequence: item.attemptSequence ?? index }) }))}
                 ariaLabel={t('codex.requestDiagnostics.payloads')} onChange={(value) => { setSelectedPayload(value); setShowHeaders(false); setError(''); setNotice(''); }} />
               {payload && <>

@@ -677,6 +677,7 @@ impl Execution {
                     deadline,
                     &self.selected.image_model,
                     super::super::grok_errors::applies(&self.selected.route),
+                    &mut self.tracker,
                 )
                 .await?;
                 exhausted = inspected.10.as_ref().and_then(super::super::quota_exhaustion::code);

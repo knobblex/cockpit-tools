@@ -318,36 +318,42 @@ impl RequestTracker {
         let Some(context) = &mut self.diagnostics else {
             return;
         };
-        if context.payloads.len() >= 16 {
-            context.truncated = true;
-            return;
-        }
-        let limit = 256 * 1024;
-        let mut end = body.len().min(limit);
-        while !body.is_char_boundary(end) {
-            end -= 1;
-        }
-        context.payloads.push(DiagnosticPayload {
+        let attempt_sequence = context.attempts.last().map(|v| v.sequence);
+        let (body_summary, truncated) = super::diagnostic_payload::summarize(body);
+        let mut payload = DiagnosticPayload {
             stage: stage.into(),
             transport: transport.into(),
-            attempt_sequence: context.attempts.last().map(|v| v.sequence),
+            attempt_sequence,
             content_type: headers
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("application/json")
                 .into(),
-            headers: headers
-                .iter()
-                .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string())))
-                .collect(),
-            body: if end < body.len() {
-                "\"[omitted: diagnostic limit exceeded]\"".into()
-            } else {
-                body.into()
-            },
-            truncated: end < body.len(),
+            headers: super::diagnostic_payload::headers(headers),
+            body: body_summary,
+            truncated,
             original_bytes: body.len() as u64,
-        });
+        };
+        if let Some(old) = context.payloads.iter_mut().find(|old|
+            old.stage == stage && old.attempt_sequence == attempt_sequence) {
+            // Stream completion has no headers of its own; retain the response headers.
+            let content_type = old.content_type.clone();
+            let mut headers = std::mem::take(&mut old.headers);
+            headers.extend(payload.headers);
+            payload.headers = headers;
+            if !payload.headers.contains_key("content-type") { payload.content_type = content_type; }
+            *old = payload;
+        } else {
+            // Preserve ingress plus the most recent attempts, including their responses.
+            // An unsent attempt can still roll back to its checkpoint. Evict only
+            // after an attempt has a result, so rollback never loses older evidence.
+            if context.payloads.len() >= 8 && !self.dispatch_open {
+                let index = context.payloads.iter().position(|item| item.stage != "client_request").unwrap_or(0);
+                context.payloads.remove(index);
+                context.truncated = true;
+            }
+            context.payloads.push(payload);
+        }
     }
 
     pub(super) fn set_peer(&mut self, peer_ip: Option<std::net::IpAddr>) {
@@ -574,7 +580,8 @@ impl RequestTracker {
     }
 
     pub(super) fn upstream_response_headers(&mut self, headers: &axum::http::HeaderMap) {
-        let request_id = ["x-request-id", "x-openai-request-id", "openai-request-id"]
+        self.payload("upstream_response", "http", headers, "null");
+        let request_id = ["x-request-id", "x-oai-request-id", "x-openai-request-id", "openai-request-id"]
             .iter().filter_map(|name| headers.get(*name).and_then(|value| value.to_str().ok()))
             .find(|value| !value.is_empty() && value.len() <= 256
                 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.')))
@@ -762,6 +769,11 @@ impl RequestTracker {
             report.error = error.map(str::to_string);
         }
         if let Some(context) = &mut self.diagnostics {
+            while context.payloads.len() > 8 {
+                let index = context.payloads.iter().position(|item| item.stage != "client_request").unwrap_or(0);
+                context.payloads.remove(index);
+                context.truncated = true;
+            }
             if let Some(attempt) = context.attempts.last_mut().filter(|v| v.status.is_none()) {
                 attempt.status = Some(status);
                 attempt.success = success;
@@ -884,6 +896,7 @@ impl RequestTracker {
     }
 
     pub(super) fn capture_upstream_error(&mut self, status: u16, value: &serde_json::Value) {
+        self.payload("upstream_response", "http", &axum::http::HeaderMap::new(), &value.to_string());
         if super::overload::event(value) { self.observe_overload(); }
         self.capture_upstream_error_code(value);
         self.capture_transient_rate_limit(super::transient_rate_limit::applies(value));
