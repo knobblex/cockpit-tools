@@ -227,6 +227,28 @@ jobs:
       - name: 📦 Install frontend dependencies
         run: npm install
 
+      # Upstream added a Rust/TypeScript protocol parity gate. The separate
+      # "compile and link" step from upstream is intentionally not carried over:
+      # it relies on a `matrix.target` key this fork's matrix does not define
+      # (it uses `args`/`release_dir`), and `npx tauri build` below already
+      # compiles and links the application.
+      - name: "⚙️ Set up Node.js for parity verification"
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: "🧪 Verify Codex protocol parity"
+        if: matrix.platform == 'ubuntu-22.04'
+        run: node scripts/check_codex_protocol_parity.cjs
+
+      - name: ⚙️ Restore Node.js build toolchain
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "npm"
+
       - name: 🔄 Sync versions
         run: npm run sync-version
 
