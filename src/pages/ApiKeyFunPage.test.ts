@@ -21,7 +21,10 @@ function setup() {
     '../services/modelProviderUsageService': {},
     '../utils/apikeyFunLinks': { buildApiKeyFunProviderBaseUrl: () => 'https://example.test/v1' },
     '../utils/apiKeyFunPrefill': {},
-    '../utils/apikeyFunClientConfigs': { resolveApiKeyFunGrokModel: () => null },
+    '../utils/apikeyFunClientConfigs': {
+      isApiKeyFunGeminiModel: (model: string) => (model.trim().toLowerCase().split('/').pop() ?? '').startsWith('gemini-'),
+      resolveApiKeyFunGrokModel: () => null,
+    },
     '../components/apiKeyFun/ApiKeyFunKeyConfigModal': { ApiKeyFunKeyConfigModal: 'KeyConfig' },
     '../components/apiKeyFun/ApiKeyFunPromotionHeader': { ApiKeyFunPromotionHeader: 'PromotionHeader' },
     '../components/ModalErrorMessage': {
