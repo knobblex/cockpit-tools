@@ -439,6 +439,24 @@ export interface CodexServiceTierAdaptation {
   reason: 'official_default_only';
 }
 
+export interface CodexHistoryShape {
+  inputItems: number;
+  messages: number;
+  toolCalls: number;
+  toolOutputs: number;
+  compactionItems: number;
+  hasPreviousResponse: boolean;
+  hasCompactionControl: boolean;
+}
+
+export interface CodexResponsesHistoryRejection {
+  client: CodexHistoryShape;
+  upstream: CodexHistoryShape;
+  compactionRequest: boolean;
+  rebuiltHistory: boolean;
+  recoveredContinuation: boolean;
+}
+
 export interface CodexLocalAccessRequestAttempt {
   imageRequest?: {
     requestedModel?: string;
@@ -454,6 +472,7 @@ export interface CodexLocalAccessRequestAttempt {
     instructionsBytes: number;
   } | null;
   overloadRetry?: { retry: number; waitMs: number; recoveryMs: number } | null;
+  responsesHistoryRejection?: CodexResponsesHistoryRejection | null;
   serviceTierAdaptation?: CodexServiceTierAdaptation | null;
   authorizationRoute?: 'official' | 'local_gateway' | null;
   authorizationFallback?: CodexAuthorizationFallbackTrace | null;

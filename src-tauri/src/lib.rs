@@ -1615,6 +1615,7 @@ pub fn run() {
             commands::workbuddy::run_workbuddy_auto_checkin_now,
             commands::workbuddy::probe_workbuddy_model,
             commands::workbuddy::fetch_workbuddy_cloud_models,
+            modules::workbuddy_log_limits::scan_workbuddy_log_limits,
             commands::workbuddy::probe_codebuddy_cn_model,
             commands::workbuddy::fetch_codebuddy_cn_cloud_models,
             // MiniMax Code Commands
@@ -1771,6 +1772,8 @@ pub fn run() {
             commands::t3code::get_t3code_accounts_index_path,
             commands::t3code::get_t3code_native_settings,
             commands::t3code::update_t3code_native_settings,
+            commands::t3code::get_t3code_privacy_settings,
+            commands::t3code::update_t3code_privacy_settings,
             commands::t3code::get_t3code_provider_workspace,
             commands::t3code::get_t3code_api_service_quota,
             commands::t3code::t3code_sync_provider_launch_paths,
@@ -1995,6 +1998,7 @@ pub fn run() {
             commands::antigravity_token_usage::antigravity_get_conversation_token_detail,
             commands::antigravity_token_usage::antigravity_get_token_usage_settings,
             commands::antigravity_token_usage::antigravity_set_token_usage_data_dir,
+            commands::antigravity_token_usage::antigravity_set_rehydrate_enabled,
         ])
         .build(context)
         .expect("error while building tauri application");

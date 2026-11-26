@@ -1,7 +1,7 @@
 {
   "name": "cockpit-tools",
   "private": true,
-  "version": "1.5.11",
+  "version": "1.5.21",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -69,7 +69,7 @@
     "vite": "^7.0.4"
   },
   "forkUpstream": {
-    "version": "1.5.1",
-    "commit": "a90b940894b7fe985759d3d526e9c973f42f7be1"
+    "version": "1.5.2",
+    "commit": "96c2d4c3f4cbe8b8c1cb8ff0ecc067211dfff699"
   }
 }

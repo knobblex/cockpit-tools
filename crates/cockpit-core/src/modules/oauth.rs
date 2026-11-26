@@ -10,6 +10,7 @@ const TOKEN_REFRESH_SKEW_SECONDS: i64 = 900;
 // Match Antigravity-Manager's native OAuth UA and known-stable fallback.
 // Do not run version probes or remote discovery on the authorization path.
 const NATIVE_OAUTH_USER_AGENT: &str = "vscode/1.X.X (Antigravity/4.3.0)";
+pub const AICODE_SCOPE: &str = "https://www.googleapis.com/auth/aicode";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TokenResponse {
@@ -21,8 +22,19 @@ pub struct TokenResponse {
     pub refresh_token: Option<String>,
     #[serde(default)]
     pub id_token: Option<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
     #[serde(skip)]
     pub oauth_client_key: Option<String>,
+}
+
+pub fn scope_lacks_aicode(scope: Option<&str>) -> bool {
+    let Some(scope) = scope.map(str::trim).filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    !scope
+        .split_whitespace()
+        .any(|item| item.eq_ignore_ascii_case(AICODE_SCOPE))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -290,6 +302,11 @@ fn build_refreshed_token(
     .with_oauth_metadata(
         response.oauth_client_key,
         response.id_token.or_else(|| current_token.id_token.clone()),
+    )
+    .with_granted_scopes(
+        response
+            .scope
+            .or_else(|| current_token.granted_scopes.clone()),
     );
     token.is_gcp_tos = current_token.is_gcp_tos;
     token
